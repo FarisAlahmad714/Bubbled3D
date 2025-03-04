@@ -1,4 +1,4 @@
-// src/components/ParticleInteraction.jsx
+// FILE: src/components/ParticleInteraction.jsx
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -8,7 +8,7 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
   const particles = useRef();
   const texture = useParticleTexture();
   
-  const count = 1200;
+  const count = 400; // Reduced from 1200
   
   const particlePositions = useMemo(() => {
     const positions = new Float32Array(count * 3);
@@ -18,17 +18,17 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
     const particleFields = [
       { 
         center: new THREE.Vector3(0, 0, 0),
-        radius: 15,
+        radius: 4,  // Reduced from 15
         color: new THREE.Color('#ffffff')
       },
       { 
-        center: new THREE.Vector3(8, 5, -3),
-        radius: 10,
+        center: new THREE.Vector3(2, 1, -1), // Scaled down positions
+        radius: 3,  // Reduced from 10
         color: new THREE.Color('#aaddff')
       },
       { 
-        center: new THREE.Vector3(-6, -4, 2),
-        radius: 8,
+        center: new THREE.Vector3(-1.5, -1, 0.5),
+        radius: 2,  // Reduced from 8
         color: new THREE.Color('#ffaadd')
       },
     ];
@@ -51,7 +51,7 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
       colors[i3 + 1] = field.color.g * (0.8 + Math.random() * 0.4);
       colors[i3 + 2] = field.color.b * (0.8 + Math.random() * 0.4);
       
-      sizes[i] = 0.1 + Math.random() * Math.random() * 0.4;
+      sizes[i] = 0.05 + Math.random() * 0.2; // Smaller range
     }
     
     return { positions, colors, sizes };
@@ -61,9 +61,9 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
     Array(count)
       .fill()
       .map(() => new THREE.Vector3(
-        (Math.random() - 0.5) * 0.02,
-        (Math.random() - 0.5) * 0.02,
-        (Math.random() - 0.5) * 0.02
+        (Math.random() - 0.5) * 0.01, // Slower velocities
+        (Math.random() - 0.5) * 0.01,
+        (Math.random() - 0.5) * 0.01
       ))
   ).current;
   
@@ -71,9 +71,9 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
     Array(count)
       .fill()
       .map(() => ({
-        influenceFactor: 0.1 + Math.random() * 0.9,
-        spiralFactor: Math.random() * 0.01,
-        oscillationSpeed: 0.5 + Math.random() * 2,
+        influenceFactor: 0.1 + Math.random() * 0.5, // Reduced range
+        spiralFactor: Math.random() * 0.005,        // Reduced spiral
+        oscillationSpeed: 0.3 + Math.random() * 1,  // Slower oscillation
         oscillationPhase: Math.random() * Math.PI * 2,
         noiseOffset: Math.random() * 1000
       }))
@@ -85,20 +85,20 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
   const forceFields = useMemo(() => [
     {
       position: new THREE.Vector3(0, 0, 0),
-      radius: 20,
-      strength: 0.0001,
+      radius: 5,   // Reduced from 20
+      strength: 0.00005, // Reduced strength
       type: 'attractor'
     },
     {
-      position: new THREE.Vector3(10, 5, -8),
-      radius: 8,
-      strength: 0.0004,
+      position: new THREE.Vector3(2.5, 1.2, -2),
+      radius: 2,   // Reduced from 8
+      strength: 0.0002,
       type: 'repulsor'
     },
     {
-      position: new THREE.Vector3(-8, -3, 5),
-      radius: 6,
-      strength: 0.0005,
+      position: new THREE.Vector3(-2, -0.8, 1.2),
+      radius: 1.5, // Reduced from 6
+      strength: 0.0003,
       type: 'vortex'
     }
   ], []);
@@ -115,11 +115,11 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
     const sizes = particles.current.geometry.attributes.size.array;
     
     frame++;
-    const doCollisionCheck = frame % 3 === 0;
+    const doCollisionCheck = frame % 5 === 0; // Increased from 3
     
-    const motionSpeed = 1 + soundIntensity * 3;
-    const interactionStrength = 0.01 * (1 + soundIntensity * 5);
-    const colorIntensity = soundIntensity * 0.5;
+    const motionSpeed = 1 + soundIntensity * 1.5; // Reduced multiplier
+    const interactionStrength = 0.005 * (1 + soundIntensity * 3); // Reduced strength
+    const colorIntensity = soundIntensity * 0.3; // Reduced effect
     
     for (let i = 0; i < count; i++) {
       const i3 = i * 3;
@@ -148,12 +148,10 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
               distVector.normalize().multiplyScalar(-force);
               particleVelocities[i].add(distVector);
               break;
-              
             case 'repulsor':
               distVector.normalize().multiplyScalar(force);
               particleVelocities[i].add(distVector);
               break;
-              
             case 'vortex':
               const perpVector = new THREE.Vector3(-distVector.z, 0, distVector.x).normalize();
               perpVector.multiplyScalar(force);
@@ -166,7 +164,7 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
       const props = particleProperties[i];
       
       const oscillation = Math.sin(time * props.oscillationSpeed + props.oscillationPhase);
-      particleVelocities[i].y += oscillation * 0.0002 * motionSpeed;
+      particleVelocities[i].y += oscillation * 0.0001 * motionSpeed; // Reduced effect
       
       const spiralStrength = props.spiralFactor * motionSpeed;
       const xVel = particleVelocities[i].x;
@@ -181,7 +179,7 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
           const spherePos = new THREE.Vector3(...sphere.position);
           const distanceSq = spherePos.distanceToSquared(particlePos);
           
-          const interactionRange = 9 * (1 + soundIntensity);
+          const interactionRange = 3 * (1 + soundIntensity); // Reduced from 9
           
           if (distanceSq < interactionRange) {
             const distance = Math.sqrt(distanceSq);
@@ -201,20 +199,20 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
                 colors[i3 + 2]
               );
               
-              currentColor.lerp(sphereColor, reaction * 0.2 * (1 + soundIntensity * 2));
+              currentColor.lerp(sphereColor, reaction * 0.1 * (1 + soundIntensity));
               
               colors[i3] = currentColor.r;
               colors[i3 + 1] = currentColor.g;
               colors[i3 + 2] = currentColor.b;
             }
             
-            sizes[i] *= 1 + reaction * 0.1 * (1 + soundIntensity);
+            sizes[i] *= 1 + reaction * 0.05 * (1 + soundIntensity); // Reduced effect
           }
         });
       }
       
       if (soundIntensity > 0) {
-        sizes[i] = Math.max(0.05, sizes[i] * (1 + soundIntensity * 0.2));
+        sizes[i] = Math.max(0.03, sizes[i] * (1 + soundIntensity * 0.1)); // Smaller pulse
         
         const brightColor = new THREE.Color(1, 1, 1);
         const currColor = new THREE.Color(colors[i3], colors[i3 + 1], colors[i3 + 2]);
@@ -224,11 +222,11 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
         colors[i3 + 1] = currColor.g;
         colors[i3 + 2] = currColor.b;
         
-        if (Math.random() < soundIntensity * 0.1) {
+        if (Math.random() < soundIntensity * 0.05) { // Reduced chaos
           particleVelocities[i].add(new THREE.Vector3(
-            (Math.random() - 0.5) * 0.02 * soundIntensity,
-            (Math.random() - 0.5) * 0.02 * soundIntensity,
-            (Math.random() - 0.5) * 0.02 * soundIntensity
+            (Math.random() - 0.5) * 0.01 * soundIntensity,
+            (Math.random() - 0.5) * 0.01 * soundIntensity,
+            (Math.random() - 0.5) * 0.01 * soundIntensity
           ));
         }
       }
@@ -237,25 +235,23 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
       positions[i3 + 1] = particlePos.y;
       positions[i3 + 2] = particlePos.z;
       
-      const bound = 15;
+      const bound = 4; // Reduced from 15
       const boundaryResponse = 0.7;
       
       if (Math.abs(positions[i3]) > bound) {
         positions[i3] = Math.sign(positions[i3]) * bound;
         particleVelocities[i].x *= -boundaryResponse;
       }
-      
       if (Math.abs(positions[i3 + 1]) > bound) {
         positions[i3 + 1] = Math.sign(positions[i3 + 1]) * bound;
         particleVelocities[i].y *= -boundaryResponse;
       }
-      
       if (Math.abs(positions[i3 + 2]) > bound) {
         positions[i3 + 2] = Math.sign(positions[i3 + 2]) * bound;
         particleVelocities[i].z *= -boundaryResponse;
       }
       
-      particleVelocities[i].multiplyScalar(0.99);
+      particleVelocities[i].multiplyScalar(0.98); // Increased drag
     }
     
     particles.current.geometry.attributes.position.needsUpdate = true;
@@ -286,14 +282,14 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
         />
       </bufferGeometry>
       <pointsMaterial
-        size={0.05}
+        size={0.1}
         vertexColors
         transparent
-        opacity={0.6}
-        sizeAttenuation
+        alphaMap={texture}
+        alphaTest={0.001}
         depthWrite={false}
         blending={THREE.AdditiveBlending}
-        map={texture}
+        sizeAttenuation
       />
     </points>
   );
