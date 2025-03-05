@@ -16,45 +16,46 @@ import Environment from './Environment'
 import ParticleField from './ParticleField'
 import ParticleInteraction from './ParticleInteraction'
 import Lighting from './Lighting'
+import StarBase from './StarBase' // New import
 
 const Scene = forwardRef(function Scene(props, ref) {
   const [spheres, setSpheres] = useState([])
   const [cameraMode, setCameraMode] = useState('orbit')
   const { camera } = useThree()
   const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0))
-  const cameraPositionRef = useRef(new THREE.Vector3(0, 2, 5)) // Smaller initial position
+  const cameraPositionRef = useRef(new THREE.Vector3(0, 2, 5))
   const cameraPanoramaAngle = useRef(0)
   const lastActiveTime = useRef(Date.now())
   const activeSphereRef = useRef(null)
   
   const cameraParams = useRef({
     speed: 0.02,
-    orbitRadius: 5,    // Was 15
-    orbitHeight: 2,    // Was 5
+    orbitRadius: 5,
+    orbitHeight: 2,
     followSpeed: 0.05,
     panoramaSpeed: 0.005,
-    panoramaRadius: 8, // Was 20
+    panoramaRadius: 8,
     autoSwitchDelay: 30000,
   })
 
   const keyData = {
-    '1': { color: '#d0f0c0', src: ['/Sounds/confetti.mp3'], scale: 1.0, lifetime: 8000, pulseSpeed: 0.5 },
-    '2': { color: '#e6e6fa', src: ['/Sounds/clay.mp3'], scale: 1.2, lifetime: 7000, pulseSpeed: 0.8 },
-    '3': { color: '#00ffff', src: ['/Sounds/corona.mp3'], scale: 0.8, lifetime: 10000, pulseSpeed: 0.3 },
-    '4': { color: '#d8bfd8', src: ['/Sounds/dotted-spiral.mp3'], scale: 1.5, lifetime: 9000, pulseSpeed: 0.6 },
-    '5': { color: '#ba99dd', src: ['/Sounds/glimmer.mp3'], scale: 1.1, lifetime: 6000, pulseSpeed: 1.0 },
-    '6': { color: '#EF5350', src: ['/Sounds/moon.mp3'], scale: 0.9, lifetime: 8500, pulseSpeed: 0.7 },
-    'q': { color: '#FF5733', src: ['/Sounds/flash-1.mp3'], scale: 1.3, lifetime: 7500, pulseSpeed: 0.9 },
-    'w': { color: '#FF8333', src: ['/Sounds/pinwheel.mp3'], scale: 1.0, lifetime: 9000, pulseSpeed: 0.4 },
-    'e': { color: '#FFAE33', src: ['/Sounds/piston-1.mp3'], scale: 1.4, lifetime: 8000, pulseSpeed: 0.6 },
-    'r': { color: '#8844EE', src: ['/Sounds/piston-2.mp3'], scale: 1.2, lifetime: 7000, pulseSpeed: 0.5 },
-    't': { color: '#44AAFF', src: ['/Sounds/piston-3.mp3'], scale: 0.9, lifetime: 9500, pulseSpeed: 0.7 },
-    'a': { color: '#66DD88', src: ['/Sounds/prism-1.mp3'], scale: 1.1, lifetime: 8200, pulseSpeed: 0.8 },
-    's': { color: '#FFDD44', src: ['/Sounds/prism-2.mp3'], scale: 1.0, lifetime: 7800, pulseSpeed: 0.6 },
-    'd': { color: '#FF44AA', src: ['/Sounds/prism-3.mp3'], scale: 1.3, lifetime: 8800, pulseSpeed: 0.4 },
-    'f': { color: '#22CCBB', src: ['/Sounds/splits.mp3'], scale: 1.2, lifetime: 7600, pulseSpeed: 0.9 },
+    '1': { color: '#e0ffe0', src: ['/Sounds/confetti.mp3'], scale: 1.0, lifetime: 8000, pulseSpeed: 0.5 },
+    '2': { color: '#f0f0ff', src: ['/Sounds/clay.mp3'], scale: 1.2, lifetime: 7000, pulseSpeed: 0.8 },
+    '3': { color: '#80ffff', src: ['/Sounds/corona.mp3'], scale: 0.8, lifetime: 10000, pulseSpeed: 0.3 },
+    '4': { color: '#f0e0f0', src: ['/Sounds/dotted-spiral.mp3'], scale: 1.5, lifetime: 9000, pulseSpeed: 0.6 },
+    '5': { color: '#d0b0ff', src: ['/Sounds/glimmer.mp3'], scale: 1.1, lifetime: 6000, pulseSpeed: 1.0 },
+    '6': { color: '#ff8888', src: ['/Sounds/moon.mp3'], scale: 0.9, lifetime: 8500, pulseSpeed: 0.7 },
+    'q': { color: '#ff8866', src: ['/Sounds/flash-1.mp3'], scale: 1.3, lifetime: 7500, pulseSpeed: 0.9 },
+    'w': { color: '#ffaa66', src: ['/Sounds/pinwheel.mp3'], scale: 1.0, lifetime: 9000, pulseSpeed: 0.4 },
+    'e': { color: '#ffcc66', src: ['/Sounds/piston-1.mp3'], scale: 1.4, lifetime: 8000, pulseSpeed: 0.6 },
+    'r': { color: '#aa66ff', src: ['/Sounds/piston-2.mp3'], scale: 1.2, lifetime: 7000, pulseSpeed: 0.5 },
+    't': { color: '#66ccff', src: ['/Sounds/piston-3.mp3'], scale: 0.9, lifetime: 9500, pulseSpeed: 0.7 },
+    'a': { color: '#88ffaa', src: ['/Sounds/prism-1.mp3'], scale: 1.1, lifetime: 8200, pulseSpeed: 0.8 },
+    's': { color: '#ffee88', src: ['/Sounds/prism-2.mp3'], scale: 1.0, lifetime: 7800, pulseSpeed: 0.6 },
+    'd': { color: '#ff88cc', src: ['/Sounds/prism-3.mp3'], scale: 1.3, lifetime: 8800, pulseSpeed: 0.4 },
+    'f': { color: '#66ffdd', src: ['/Sounds/splits.mp3'], scale: 1.2, lifetime: 7600, pulseSpeed: 0.9 },
   }
-
+  
   const recordedEvents = useRef([])
   const recordStart = useRef(0)
   const [isRecording, setIsRecording] = useState(false)
@@ -85,7 +86,7 @@ const Scene = forwardRef(function Scene(props, ref) {
       const orbitZ = Math.cos(time * cameraParams.current.speed) * cameraParams.current.orbitRadius
       cameraPositionRef.current.set(orbitX, cameraParams.current.orbitHeight, orbitZ)
       camera.position.lerp(cameraPositionRef.current, 0.01)
-      camera.lookAt(0, 0, 0)
+      camera.lookAt(0, 0, 0) // Look at the star base at origin
     } 
     else if (cameraMode === 'follow' && activeSphereRef.current) {
       cameraTargetRef.current.lerp(activeSphereRef.current, cameraParams.current.followSpeed)
@@ -95,10 +96,10 @@ const Scene = forwardRef(function Scene(props, ref) {
       cameraPanoramaAngle.current += cameraParams.current.panoramaSpeed
       const panoramaX = Math.sin(cameraPanoramaAngle.current) * cameraParams.current.panoramaRadius
       const panoramaZ = Math.cos(cameraPanoramaAngle.current) * cameraParams.current.panoramaRadius
-      const panoramaY = 2 + Math.sin(time * 0.1) * 1 // Reduced Y range
+      const panoramaY = 2 + Math.sin(time * 0.1) * 1
       cameraPositionRef.current.set(panoramaX, panoramaY, panoramaZ)
       camera.position.lerp(cameraPositionRef.current, 0.01)
-      camera.lookAt(0, 0, 0)
+      camera.lookAt(0, 0, 0) // Look at the star base
     }
   })
 
@@ -107,13 +108,13 @@ const Scene = forwardRef(function Scene(props, ref) {
     
     lastActiveTime.current = Date.now()
     
-    const radius = 2 + Math.random() * 2 // Reduced spawn radius from 5-10 to 2-4
+    const radius = 2 + Math.random() * 2
     const theta = Math.random() * Math.PI * 2
     const phi = Math.acos((Math.random() * 2) - 1)
     
     const position = [
       radius * Math.sin(phi) * Math.cos(theta),
-      radius * Math.cos(phi) + (Math.random() - 0.5) * 1, // Reduced Y variation
+      radius * Math.cos(phi) + (Math.random() - 0.5) * 1,
       radius * Math.sin(phi) * Math.sin(theta)
     ]
     
@@ -168,7 +169,7 @@ const Scene = forwardRef(function Scene(props, ref) {
       const currentIndex = modes.indexOf(cameraMode)
       const nextIndex = (currentIndex + 1) % modes.length
       setCameraMode(modes[nextIndex])
-      lastActiveTime.current = Date.now()
+      lastActiveTime.current = now
     }
   }
 
@@ -276,23 +277,24 @@ const Scene = forwardRef(function Scene(props, ref) {
         <OrbitControls 
           enableZoom={true}
           enablePan={true}
-          maxDistance={10}  // Reduced from 30
-          minDistance={1}   // Reduced from 2
+          maxDistance={10}
+          minDistance={1}
           enableDamping
           dampingFactor={0.05}
+          target={[0, 0, 0]} // Target the star base at origin
         />
       )}
       
       <Lighting soundIntensity={soundIntensity.current} />
       
       <Stars 
-        radius={20}  // Reduced from 100
-        depth={10}   // Reduced from 50
-        count={props.performanceSettings.starCount} // Dynamic from presets
-        factor={2}   // Reduced from 4
-        saturation={0.3} // Reduced from 0.5
+        radius={20}
+        depth={10}
+        count={props.performanceSettings.starCount}
+        factor={2}
+        saturation={0.3}
         fade
-        speed={0.2}  // Reduced from 0.5
+        speed={0.2}
       />
 
       <ParticleField 
@@ -303,6 +305,9 @@ const Scene = forwardRef(function Scene(props, ref) {
         spheres={spheres} 
         soundIntensity={soundIntensity.current}
       />
+
+      {/* Add the StarBase component */}
+      <StarBase soundIntensity={soundIntensity.current} />
 
       {spheres.map(s => (
         <Sphere
