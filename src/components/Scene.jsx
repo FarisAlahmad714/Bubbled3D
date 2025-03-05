@@ -1,5 +1,4 @@
 // FILE: src/components/Scene.jsx
-
 import React, {
   useState,
   useRef,
@@ -7,7 +6,7 @@ import React, {
   forwardRef,
   useImperativeHandle
 } from 'react'
-import { OrbitControls, PerspectiveCamera, useTexture, Stars } from '@react-three/drei'
+import { OrbitControls, Stars } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Howl } from 'howler'
 import { v4 as uuidv4 } from 'uuid'
@@ -20,26 +19,24 @@ import Lighting from './Lighting'
 
 const Scene = forwardRef(function Scene(props, ref) {
   const [spheres, setSpheres] = useState([])
-  const [cameraMode, setCameraMode] = useState('orbit') // orbit, follow, panorama
+  const [cameraMode, setCameraMode] = useState('orbit')
   const { camera } = useThree()
   const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0))
-  const cameraPositionRef = useRef(new THREE.Vector3(0, 5, 10))
+  const cameraPositionRef = useRef(new THREE.Vector3(0, 2, 5)) // Smaller initial position
   const cameraPanoramaAngle = useRef(0)
   const lastActiveTime = useRef(Date.now())
   const activeSphereRef = useRef(null)
   
-  // Camera animation parameters
   const cameraParams = useRef({
     speed: 0.02,
-    orbitRadius: 15,
-    orbitHeight: 5,
+    orbitRadius: 5,    // Was 15
+    orbitHeight: 2,    // Was 5
     followSpeed: 0.05,
     panoramaSpeed: 0.005,
-    panoramaRadius: 20,
-    autoSwitchDelay: 30000, // 30 seconds of inactivity to auto-switch camera modes
+    panoramaRadius: 8, // Was 20
+    autoSwitchDelay: 30000,
   })
 
-  // KEY -> SOUND data with enhanced color palette and more properties
   const keyData = {
     '1': { color: '#d0f0c0', src: ['/Sounds/confetti.mp3'], scale: 1.0, lifetime: 8000, pulseSpeed: 0.5 },
     '2': { color: '#e6e6fa', src: ['/Sounds/clay.mp3'], scale: 1.2, lifetime: 7000, pulseSpeed: 0.8 },
@@ -58,40 +55,32 @@ const Scene = forwardRef(function Scene(props, ref) {
     'f': { color: '#22CCBB', src: ['/Sounds/splits.mp3'], scale: 1.2, lifetime: 7600, pulseSpeed: 0.9 },
   }
 
-  // SINGLE LOOP logic
   const recordedEvents = useRef([])
   const recordStart = useRef(0)
   const [isRecording, setIsRecording] = useState(false)
   const [isLooping, setIsLooping] = useState(false)
   const timeoutsAndIntervals = useRef([])
   
-  // Sound intensity tracking for visual reactivity
   const soundIntensity = useRef(0)
   const peakIntensity = useRef(0)
-  const intensityDecay = useRef(0.95) // How quickly the intensity fades
+  const intensityDecay = useRef(0.95)
 
-  // Handle camera modes and animations
   useFrame(({ clock }) => {
     const time = clock.getElapsedTime()
     const now = Date.now()
     
-    // Handle inactivity detection for auto camera switching
     if (now - lastActiveTime.current > cameraParams.current.autoSwitchDelay) {
-      // Switch camera mode after inactivity
       const modes = ['orbit', 'panorama', 'follow']
       const currentIndex = modes.indexOf(cameraMode)
       const nextIndex = (currentIndex + 1) % modes.length
       setCameraMode(modes[nextIndex])
-      lastActiveTime.current = now // Reset timer after switching
+      lastActiveTime.current = now
     }
     
-    // Update sound intensity decay
     soundIntensity.current *= intensityDecay.current
     if (soundIntensity.current < 0.01) soundIntensity.current = 0
     
-    // Camera animations based on mode
     if (cameraMode === 'orbit') {
-      // Smooth orbital movement
       const orbitX = Math.sin(time * cameraParams.current.speed) * cameraParams.current.orbitRadius
       const orbitZ = Math.cos(time * cameraParams.current.speed) * cameraParams.current.orbitRadius
       cameraPositionRef.current.set(orbitX, cameraParams.current.orbitHeight, orbitZ)
@@ -99,42 +88,35 @@ const Scene = forwardRef(function Scene(props, ref) {
       camera.lookAt(0, 0, 0)
     } 
     else if (cameraMode === 'follow' && activeSphereRef.current) {
-      // Follow the most recently active sphere
       cameraTargetRef.current.lerp(activeSphereRef.current, cameraParams.current.followSpeed)
       camera.lookAt(cameraTargetRef.current)
     }
     else if (cameraMode === 'panorama') {
-      // Panoramic movement around the scene
       cameraPanoramaAngle.current += cameraParams.current.panoramaSpeed
       const panoramaX = Math.sin(cameraPanoramaAngle.current) * cameraParams.current.panoramaRadius
       const panoramaZ = Math.cos(cameraPanoramaAngle.current) * cameraParams.current.panoramaRadius
-      const panoramaY = 5 + Math.sin(time * 0.1) * 2 // Slight up and down motion
-      
+      const panoramaY = 2 + Math.sin(time * 0.1) * 1 // Reduced Y range
       cameraPositionRef.current.set(panoramaX, panoramaY, panoramaZ)
       camera.position.lerp(cameraPositionRef.current, 0.01)
       camera.lookAt(0, 0, 0)
     }
   })
 
-  // CREATE SPHERE + PLAY SOUND with enhanced properties
   function createSphereAndPlaySound(k) {
-    if (!keyData[k]) return
+    if (!keyData[k] || spheres.length >= props.performanceSettings.maxSpheres) return
     
-    // Update activity timestamp
     lastActiveTime.current = Date.now()
     
-    // More dynamic position generation using spherical coordinates for better distribution
-    const radius = 5 + Math.random() * 5 // Distance from center
-    const theta = Math.random() * Math.PI * 2 // Around Y axis
-    const phi = Math.acos((Math.random() * 2) - 1) // From top to bottom
+    const radius = 2 + Math.random() * 2 // Reduced spawn radius from 5-10 to 2-4
+    const theta = Math.random() * Math.PI * 2
+    const phi = Math.acos((Math.random() * 2) - 1)
     
     const position = [
       radius * Math.sin(phi) * Math.cos(theta),
-      radius * Math.cos(phi) + (Math.random() - 0.5) * 2, // Add some variation to Y
+      radius * Math.cos(phi) + (Math.random() - 0.5) * 1, // Reduced Y variation
       radius * Math.sin(phi) * Math.sin(theta)
     ]
     
-    // Create a more complex sphere object with additional properties
     const newSphere = {
       position,
       color: keyData[k].color,
@@ -142,34 +124,29 @@ const Scene = forwardRef(function Scene(props, ref) {
       scale: keyData[k].scale || 1.0,
       pulseSpeed: keyData[k].pulseSpeed || 0.5,
       createdAt: Date.now(),
-      lifetime: keyData[k].lifetime || 8000, // Sphere lifetime in ms
-      key: k // Remember which key created this sphere
+      lifetime: keyData[k].lifetime || 8000,
+      key: k
     }
     
-    // Keep track of this sphere as the active one for camera following
     activeSphereRef.current = new THREE.Vector3(...position)
     
-    // Add new sphere to state, keeping the newest 50
     setSpheres(prev => {
       const next = [...prev, newSphere]
-      if (next.length > 50) next.shift()
+      if (next.length > props.performanceSettings.maxSpheres) next.shift()
       return next
     })
 
-    // Play sound with enhanced volume based on accumulated intensity
     const sound = new Howl({ 
       src: keyData[k].src,
-      volume: 0.8 + (soundIntensity.current * 0.2) // Slight volume increase with activity
+      volume: 0.8 + (soundIntensity.current * 0.2)
     })
     sound.play()
     
-    // Increase sound intensity for visual reactivity
     soundIntensity.current += 0.3
     if (soundIntensity.current > 1) soundIntensity.current = 1
     peakIntensity.current = Math.max(peakIntensity.current, soundIntensity.current)
   }
 
-  // Handle keydown to create sphere and, if recording, record the event
   function handleKeyDown(e) {
     const k = e.key.toLowerCase()
     if (keyData[k]) {
@@ -186,35 +163,31 @@ const Scene = forwardRef(function Scene(props, ref) {
       }
     }
     
-    // Camera control keys
     if (e.key === 'c') {
-      // Cycle through camera modes
       const modes = ['orbit', 'follow', 'panorama']
       const currentIndex = modes.indexOf(cameraMode)
       const nextIndex = (currentIndex + 1) % modes.length
       setCameraMode(modes[nextIndex])
-      lastActiveTime.current = Date.now() // Reset inactivity timer
+      lastActiveTime.current = Date.now()
     }
   }
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
     
-    // Set up a clean up interval to remove spheres that exceeded their lifetime
     const cleanupInterval = setInterval(() => {
       const now = Date.now()
       setSpheres(prevSpheres => 
         prevSpheres.filter(sphere => (now - sphere.createdAt) < sphere.lifetime)
       )
-    }, 1000) // Check once per second
+    }, 1000)
     
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       clearInterval(cleanupInterval)
     }
-  }, [isRecording, cameraMode])
+  }, [isRecording, cameraMode, props.performanceSettings])
 
-  // RECORDING methods
   function startRecording() {
     recordedEvents.current = []
     recordStart.current = performance.now()
@@ -224,7 +197,6 @@ const Scene = forwardRef(function Scene(props, ref) {
     setIsRecording(false)
   }
 
-  // PLAY ONCE: schedules setTimeouts for each recorded event and returns total duration
   function playOnce() {
     const evs = recordedEvents.current
     if (!evs.length) return 0
@@ -238,7 +210,6 @@ const Scene = forwardRef(function Scene(props, ref) {
     return totalDuration
   }
 
-  // LOOP methods
   function startLoop() {
     if (isLooping) return
     setIsLooping(true)
@@ -262,27 +233,27 @@ const Scene = forwardRef(function Scene(props, ref) {
     recordedEvents.current = []
   }
 
-  // Remove sphere from state
   function removeSphereFromState(sId) {
     setSpheres(prev => prev.filter(s => s.id !== sId))
   }
 
-  // Toggle camera mode from parent component
   function toggleCameraMode() {
     const modes = ['orbit', 'follow', 'panorama']
     const currentIndex = modes.indexOf(cameraMode)
     const nextIndex = (currentIndex + 1) % modes.length
     setCameraMode(modes[nextIndex])
-    lastActiveTime.current = Date.now() // Reset inactivity timer
+    lastActiveTime.current = Date.now()
   }
 
-  // Set camera motion speed
   function setCameraSpeed(speed) {
     cameraParams.current.speed = speed
     cameraParams.current.panoramaSpeed = speed / 4
   }
 
-  // Expose methods to the parent via ref
+  function setPerformanceMode(settings) {
+    // No need to do anything here since props.performanceSettings updates automatically
+  }
+
   useImperativeHandle(ref, () => ({
     createSphereAndPlaySound,
     startRecording,
@@ -292,6 +263,7 @@ const Scene = forwardRef(function Scene(props, ref) {
     deleteLoop,
     toggleCameraMode,
     setCameraSpeed,
+    setPerformanceMode,
     getSoundIntensity: () => soundIntensity.current,
     getCurrentCameraMode: () => cameraMode
   }))
@@ -300,16 +272,12 @@ const Scene = forwardRef(function Scene(props, ref) {
     <>
       <Environment soundIntensity={soundIntensity.current} />
       
-      {/* We're not using the drei PerspectiveCamera component anymore 
-          since we're controlling the camera directly via useThree */}
-      
-      {/* Conditionally show OrbitControls only in orbit mode, and disable when auto-animating */}
       {cameraMode === 'orbit' && (
         <OrbitControls 
           enableZoom={true}
           enablePan={true}
-          maxDistance={30}
-          minDistance={2}
+          maxDistance={10} // Reduced from 30
+          minDistance={1}  // Reduced from 2
           enableDamping
           dampingFactor={0.05}
         />
@@ -317,25 +285,25 @@ const Scene = forwardRef(function Scene(props, ref) {
       
       <Lighting soundIntensity={soundIntensity.current} />
       
-      {/* Add starfield background */}
       <Stars 
-        radius={100} 
-        depth={50} 
-        count={5000} 
-        factor={4} 
-        saturation={0.5} 
-        fade 
-        speed={0.5} 
+        radius={20}  // Reduced from 100
+        depth={10}   // Reduced from 50
+        count={props.performanceSettings.starCount} // Dynamic from presets
+        factor={2}   // Reduced from 4
+        saturation={0.3} // Reduced from 0.5
+        fade
+        speed={0.2}  // Reduced from 0.5
       />
 
-      {/* Particle systems */}
-      <ParticleField soundIntensity={soundIntensity.current} />
+      <ParticleField 
+        soundIntensity={soundIntensity.current} 
+        performanceSettings={props.performanceSettings}
+      />
       <ParticleInteraction 
         spheres={spheres} 
         soundIntensity={soundIntensity.current}
       />
 
-      {/* Render all spheres with enhanced props */}
       {spheres.map(s => (
         <Sphere
           key={s.id}
