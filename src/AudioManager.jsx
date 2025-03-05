@@ -22,22 +22,13 @@ export function AudioManagerProvider({ children }) {
 
   // A function to preview a sample file
   async function previewSample(url) {
-    try {
-      await Tone.start();
-      console.log("Audio context started");
-      const player = new Tone.Player({
-        url,
-        onload: () => {
-          console.log("Player loaded:", url);
-          player.start();
-        },
-        onerror: (err) => console.error("Player error:", err),
-      }).toDestination();
-      console.log("Player created for:", url);
-    } catch (err) {
-      console.error("Preview failed:", err);
-    }
+    // We must ensure the audio context is resumed once a user gesture is made
+    await Tone.start(); // This ensures user gesture unlock
+    // Create a short-lived player
+    const player = new Tone.Player(url).toDestination();
+    player.autostart = true; // immediately start
   }
+
   // Start the recorder
   async function startRecording() {
     if (!recorderRef.current) return;
