@@ -1,30 +1,7 @@
-import { useRef, useEffect, useState, useMemo } from 'react';
+// FILE: src/components/Sphere.jsx
+import { useRef, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { shaderMaterial } from '@react-three/drei';
-import { extend } from '@react-three/fiber';
 import * as THREE from 'three';
-import { vertexShader, fragmentShader } from '../shaders/bubble';
-
-// Improved bubble material with optimized shaders
-const BubbleMaterial = shaderMaterial(
-  {
-    color: [1, 1, 1],
-    rimPower: 2.0,
-    time: 0,
-    pulseSpeed: 0.5,
-    soundIntensity: 0,
-    colorShift: 0,
-    opacity: 1.0
-  },
-  vertexShader,
-  fragmentShader
-);
-
-// Extend drei with our custom material
-extend({ BubbleMaterial });
-
-// Create a shared geometry instance to reduce memory usage
-const sharedGeometry = new THREE.SphereGeometry(1, 16, 16);
 
 export default function Sphere({
   position,
@@ -36,136 +13,91 @@ export default function Sphere({
   soundIntensity = 0,
   lifetime = 8000,
   createdAt = Date.now(),
-  worldRadius = 12
 }) {
-  const meshRef = useRef();
-  const materialRef = useRef();
+  const ref = useRef();
+  const [ageRatio, setAgeRatio] = useState(0);
   
-  // Memoize the color conversion to RGB values
-  const colorRGB = useMemo(() => {
-    return [
-      parseInt(color.slice(1, 3), 16) / 255,
-      parseInt(color.slice(3, 5), 16) / 255,
-      parseInt(color.slice(5, 7), 16) / 255
-    ];
-  }, [color]);
-  
-  // Physics references
   const velocity = useRef({
-    x: (Math.random() - 0.5) * 0.01,
-    y: 0.003 + Math.random() * 0.01,
-    z: (Math.random() - 0.5) * 0.01
+    x: (Math.random() - 0.5) * 0.01, // Slower velocity
+    y: 0.005 + Math.random() * 0.01,
+    z: (Math.random() - 0.5) * 0.01,
   });
   
-  // Rotation parameters
-  const rotationAxis = useRef(new THREE.Vector3(
-    Math.random() - 0.5,
-    Math.random() - 0.5,
-    Math.random() - 0.5
-  ).normalize());
+  const targetPositionRef = useRef(new THREE.Vector3(...position));
+  const originalPositionRef = useRef(new THREE.Vector3(...position));
   
-  const rotationSpeed = useRef(0.002 + Math.random() * 0.003);
-  const rimSpeed = useRef(0.004 + Math.random() * 0.006);
-  
-  // Calculate age only once per frame
-  const age = useRef(0);
-  const ageRatio = useRef(0);
-  
-  // Reuse vector objects
-  const targetPosition = useRef(new THREE.Vector3(...position));
-  const basePosition = useRef(new THREE.Vector3(...position));
-  
-  // Setup and cleanup
   useEffect(() => {
-    // Set initial material properties
-    if (materialRef.current) {
-      materialRef.current.uniforms.color.value = colorRGB;
-      materialRef.current.uniforms.pulseSpeed.value = pulseSpeed;
-    }
-    
-    // Cleanup timer
     const timeoutId = setTimeout(() => {
       removeSphere(sphereId);
     }, lifetime);
     
     return () => clearTimeout(timeoutId);
-  }, [sphereId, removeSphere, lifetime, colorRGB, pulseSpeed]);
-  
-  // Simplified animation frame
+  }, [sphereId, removeSphere, lifetime]);
+
   useFrame(({ clock }) => {
-    if (!meshRef.current || !materialRef.current) return;
+    if (!ref.current) return;
     
     const time = clock.getElapsedTime();
     const now = Date.now();
     
-    // Calculate age only once
-    age.current = now - createdAt;
-    ageRatio.current = Math.min(age.current / lifetime, 1);
+    const age = now - createdAt;
+    const newAgeRatio = Math.min(age / lifetime, 1);
+    setAgeRatio(newAgeRatio);
     
-    // Update material uniforms - minimized calculations
-    materialRef.current.uniforms.time.value = time;
-    materialRef.current.uniforms.soundIntensity.value = soundIntensity;
-    materialRef.current.uniforms.colorShift.value = ageRatio.current * 0.5;
-    materialRef.current.uniforms.opacity.value = 1 - ageRatio.current * 0.8;
+    const baseScale = Math.max(0.1, scale * (1 - newAgeRatio * 0.9));
+    const pulseAmount = Math.sin(time * pulseSpeed * 3) * 0.05 * (1 - newAgeRatio); // Reduced pulse
+    const soundScaleBoost = soundIntensity * 0.1 * (1 - newAgeRatio); // Reduced boost
+    const finalScale = baseScale + pulseAmount + soundScaleBoost;
     
-    // Fast scale calculation
-    const finalScale = scale * (1 - ageRatio.current * 0.7) * 
-                        (1 + Math.sin(time * pulseSpeed * 2) * 0.05 + soundIntensity * 0.1);
-    meshRef.current.scale.set(finalScale, finalScale, finalScale);
+    ref.current.scale.set(finalScale, finalScale, finalScale);
     
-    // Simplified physics update - fewer calculations per frame
-    const ageDamping = 1 - ageRatio.current * 0.5;
-    const pos = meshRef.current.position;
+    velocity.current.x += (Math.random() - 0.5) * 0.0005; // Reduced noise
+    velocity.current.y += (Math.random() - 0.5) * 0.0005;
+    velocity.current.z += (Math.random() - 0.5) * 0.0005;
     
-    // Apply velocity with damping
-    pos.x += velocity.current.x * ageDamping;
-    pos.y += velocity.current.y * ageDamping;
-    pos.z += velocity.current.z * ageDamping;
+    const currentPos = ref.current.position;
+    const ageDamping = 1 - newAgeRatio * 0.8;
+    currentPos.x += velocity.current.x * ageDamping;
+    currentPos.y += velocity.current.y * ageDamping;
+    currentPos.z += velocity.current.z * ageDamping;
     
-    // Occasional random motion and boundary checks (less frequent)
-    if (Math.random() < 0.01) {
-      // Add small random motion
-      velocity.current.x += (Math.random() - 0.5) * 0.0002;
-      velocity.current.y += (Math.random() - 0.5) * 0.0002;
-      velocity.current.z += (Math.random() - 0.5) * 0.0002;
-      
-      // Check boundaries with world radius
-      const distSq = pos.x * pos.x + pos.y * pos.y + pos.z * pos.z;
-      
-      if (distSq > worldRadius * worldRadius * 0.7) {
-        // Push back toward center
-        pos.multiplyScalar(0.98);
-      }
+    if (Math.random() < 0.03 * (1 - newAgeRatio)) { // Less frequent updates
+      targetPositionRef.current.set(
+        originalPositionRef.current.x + (Math.random() - 0.5) * 2, // Reduced range
+        originalPositionRef.current.y + (Math.random() - 0.5) * 2 + 1,
+        originalPositionRef.current.z + (Math.random() - 0.5) * 2
+      );
     }
     
-    // Apply gentle attraction to origin for older spheres
-    if (ageRatio.current > 0.7) {
-      const attraction = (ageRatio.current - 0.7) * 0.005;
-      pos.y -= attraction; // Simplified gravity effect
+    currentPos.lerp(targetPositionRef.current, 0.003); // Slower lerp
+    
+    if (newAgeRatio > 0.8) {
+      const attraction = (newAgeRatio - 0.8) * 0.005; // Reduced attraction
+      currentPos.lerp(new THREE.Vector3(0, -2, 0), attraction); // Smaller sink
     }
     
-    // Apply rim effect growth - capped for performance
-    const newRimPower = materialRef.current.uniforms.rimPower.value + 
-                         rimSpeed.current * (1 - ageRatio.current * 0.3);
-    materialRef.current.uniforms.rimPower.value = Math.min(4, newRimPower);
-    
-    // Apply rotation - simpler calculation
-    meshRef.current.rotateOnAxis(
-      rotationAxis.current, 
-      rotationSpeed.current * (1 + soundIntensity * 0.3)
-    );
+    const bounceMargin = 3; // Reduced from 12
+    if (Math.abs(currentPos.x) > bounceMargin) {
+      velocity.current.x *= -0.8;
+      currentPos.x = Math.sign(currentPos.x) * bounceMargin;
+    }
+    if (Math.abs(currentPos.y) > bounceMargin) {
+      velocity.current.y *= -0.8;
+      currentPos.y = Math.sign(currentPos.y) * bounceMargin;
+    }
+    if (Math.abs(currentPos.z) > bounceMargin) {
+      velocity.current.z *= -0.8;
+      currentPos.z = Math.sign(currentPos.z) * bounceMargin;
+    }
   });
-  
+
   return (
-    <mesh position={position} ref={meshRef}>
-      <primitive object={sharedGeometry} attach="geometry" />
-      <bubbleMaterial 
-        ref={materialRef}
-        color={colorRGB}
-        rimPower={2.0}
+    <mesh position={position} ref={ref}>
+      <sphereGeometry args={[0.5, 16, 16]} /> {/* Reduced segments from 32 */}
+      <meshStandardMaterial 
+        color={color}
         transparent
-        opacity={1.0}
-        depthWrite={false}
+        opacity={1 - ageRatio * 0.8}
       />
     </mesh>
   );

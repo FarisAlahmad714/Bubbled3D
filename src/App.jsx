@@ -1,5 +1,4 @@
 // FILE: src/App.jsx
-
 import React, { useState, useRef, useEffect } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { Howler } from 'howler'
@@ -9,30 +8,29 @@ import MultiTrackLooper from './components/MultiTrackLooper'
 // Performance preset configurations
 const PERFORMANCE_PRESETS = {
   low: {
-    particleCount: 800,
-    maxSpheres: 30,
+    particleCount: 100,  // Was 800
+    maxSpheres: 10,      // Was 30
     postProcessing: false,
-    bloomIntensity: 0.5,
-    starCount: 2000
+    bloomIntensity: 0.3,
+    starCount: 200       // Was 2000
   },
   medium: {
-    particleCount: 2000,
-    maxSpheres: 40,
-    postProcessing: true,
-    bloomIntensity: 1.0,
-    starCount: 4000
+    particleCount: 300,  // Was 2000
+    maxSpheres: 20,      // Was 40
+    postProcessing: false, // Disable for speed
+    bloomIntensity: 0.5,
+    starCount: 500       // Was 4000
   },
   high: {
-    particleCount: 5000,
-    maxSpheres: 50,
+    particleCount: 600,  // Was 5000
+    maxSpheres: 30,      // Was 50
     postProcessing: true,
-    bloomIntensity: 1.5,
-    starCount: 6000
+    bloomIntensity: 0.8,
+    starCount: 1000      // Was 6000
   }
 };
 
 export default function App() {
-  // App states
   const [entered, setEntered] = useState(false)
   const [showControls, setShowControls] = useState(true)
   const [showHelpPopup, setShowHelpPopup] = useState(false)
@@ -44,61 +42,45 @@ export default function App() {
   const [performanceMode, setPerformanceMode] = useState('medium')
   const [fps, setFps] = useState(0)
   
-  // Refs
   const sceneRef = useRef(null)
   const looperRef = useRef(null)
   const controlsTimeoutRef = useRef(null)
   const frameCountRef = useRef(0)
   const lastFrameTimeRef = useRef(performance.now())
   
-  // FPS counter
   useEffect(() => {
     let frameId;
-    
     const updateFps = () => {
       const now = performance.now();
       const delta = now - lastFrameTimeRef.current;
-      
-      // Update every second
       if (delta > 1000) {
         setFps(Math.round((frameCountRef.current * 1000) / delta));
         frameCountRef.current = 0;
         lastFrameTimeRef.current = now;
       }
-      
       frameCountRef.current++;
       frameId = requestAnimationFrame(updateFps);
     };
-    
     frameId = requestAnimationFrame(updateFps);
-    
     return () => cancelAnimationFrame(frameId);
   }, []);
   
-  // Auto-hide controls after inactivity
   useEffect(() => {
     const resetTimeout = () => {
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current)
       }
-      
       if (!showControls) {
         setShowControls(true)
       }
-      
       controlsTimeoutRef.current = setTimeout(() => {
         setShowControls(false)
-      }, 5000) // Hide after 5 seconds of inactivity
+      }, 5000)
     }
-    
-    // Event listeners for mouse movement
     window.addEventListener('mousemove', resetTimeout)
     window.addEventListener('click', resetTimeout)
     window.addEventListener('keydown', resetTimeout)
-    
-    // Initial timeout
     resetTimeout()
-    
     return () => {
       window.removeEventListener('mousemove', resetTimeout)
       window.removeEventListener('click', resetTimeout)
@@ -109,81 +91,63 @@ export default function App() {
     }
   }, [showControls])
   
-  // Update UI state based on scene values
   useEffect(() => {
     if (!sceneRef.current) return
-    
     const updateInterval = setInterval(() => {
-      // Update sound intensity display
       if (sceneRef.current.getSoundIntensity) {
         setSoundIntensity(sceneRef.current.getSoundIntensity())
       }
-      
-      // Update camera mode
       if (sceneRef.current.getCurrentCameraMode) {
         setCameraMode(sceneRef.current.getCurrentCameraMode())
       }
     }, 100)
-    
     return () => clearInterval(updateInterval)
   }, [sceneRef.current])
 
-  // The Scene calls this on recognized key presses
   const handleKeyPress = (key) => {
     if (looperRef.current?.recordKeyPress) {
       looperRef.current.recordKeyPress(key)
     }
   }
   
-  // Handle camera mode toggle
   const handleCameraModeToggle = () => {
     if (sceneRef.current?.toggleCameraMode) {
       sceneRef.current.toggleCameraMode()
     }
   }
   
-  // Handle camera speed change
   const handleCameraSpeedChange = (e) => {
     const newSpeed = parseFloat(e.target.value)
     setCameraSpeed(newSpeed)
     if (sceneRef.current?.setCameraSpeed) {
-      sceneRef.current.setCameraSpeed(newSpeed / 10) // Scale down for actual use
+      sceneRef.current.setCameraSpeed(newSpeed / 10)
     }
   }
   
-  // Handle visual mode toggle
   const handleVisualModeToggle = () => {
     const modes = ['default', 'neon', 'dream', 'monochrome']
     const currentIndex = modes.indexOf(visualMode)
     const nextIndex = (currentIndex + 1) % modes.length
     setVisualMode(modes[nextIndex])
-    
-    // You would pass this to Scene to affect visuals
   }
   
-  // Toggle help popup
   const toggleHelpPopup = () => {
     setShowHelpPopup(!showHelpPopup)
     setShowPerformancePopup(false)
   }
   
-  // Toggle performance popup
   const togglePerformancePopup = () => {
     setShowPerformancePopup(!showPerformancePopup)
     setShowHelpPopup(false)
   }
   
-  // Change performance mode
   const changePerformanceMode = (mode) => {
     setPerformanceMode(mode)
-    
-    // Apply performance settings to scene
     if (sceneRef.current?.setPerformanceMode) {
       sceneRef.current.setPerformanceMode(PERFORMANCE_PRESETS[mode])
     }
   }
 
-  // Enter site logic
   function handleEnterClick() {
     if (Howler.usingWebAudio && Howler.ctx) {
       Howler.ctx.resume().then(() => {
@@ -196,7 +160,6 @@ export default function App() {
     }
   }
 
-  // Landing page styles
   const landingStyle = {
     width: '100vw',
     height: '100vh',
@@ -236,7 +199,6 @@ export default function App() {
     transition: 'all 0.3s ease'
   }
   
-  // UI styles
   const controlsStyle = {
     position: 'absolute',
     top: 0,
@@ -370,7 +332,6 @@ export default function App() {
     transition: 'all 0.2s ease'
   })
 
-  // Landing page screen
   if (!entered) {
     return (
       <div style={landingStyle}>
@@ -393,14 +354,14 @@ export default function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
-      {/* 3D scene in Canvas with dpr setting for performance */}
       <Canvas 
         style={{ width: '100%', height: '100%' }} 
-        dpr={performanceMode === 'low' ? 1 : window.devicePixelRatio}
-        frameloop={performanceMode === 'low' ? 'demand' : 'always'}
+        dpr={Math.min(1.5, window.devicePixelRatio)} // Cap DPR for speed
+        frameloop={performanceMode === 'high' ? 'always' : 'demand'} // Demand for low/med
         gl={{ 
-          antialias: performanceMode !== 'low',
-          powerPreference: 'high-performance'
+          antialias: performanceMode === 'high', // Disable AA on low/med
+          powerPreference: 'high-performance',
+          alpha: true
         }}
       >
         <Scene 
@@ -411,10 +372,8 @@ export default function App() {
         />
       </Canvas>
 
-      {/* Top controls bar */}
       <div style={controlsStyle}>
         <div style={buttonGroupStyle}>
-          {/* Left side controls */}
           <button 
             onClick={() => sceneRef.current?.startLoop()}
             style={buttonStyle}
@@ -447,7 +406,6 @@ export default function App() {
           justifyContent: 'center',
           flex: 1
         }}>
-          {/* Center controls */}
           <div style={sliderContainerStyle}>
             <span style={sliderLabelStyle}>Camera Speed:</span>
             <input 
@@ -486,7 +444,6 @@ export default function App() {
         </div>
         
         <div style={buttonGroupStyle}>
-          {/* Right side controls - sound intensity display */}
           <div style={{
             background: 'rgba(20, 25, 45, 0.6)',
             padding: '0.5rem',
@@ -513,12 +470,10 @@ export default function App() {
         </div>
       </div>
 
-      {/* FPS counter */}
       <div style={fpsCounterStyle}>
         {fps} FPS
       </div>
 
-      {/* Performance settings button */}
       <div 
         style={performanceButtonStyle} 
         onClick={togglePerformancePopup}
@@ -527,7 +482,6 @@ export default function App() {
         ⚙️
       </div>
 
-      {/* Help button */}
       <div 
         style={helpButtonStyle} 
         onClick={toggleHelpPopup}
@@ -536,7 +490,6 @@ export default function App() {
         ?
       </div>
       
-      {/* Performance popup */}
       {showPerformancePopup && (
         <div style={popupStyle}>
           <h3 style={{ borderBottom: '1px solid rgba(80, 120, 220, 0.3)', paddingBottom: '0.5rem' }}>
@@ -634,7 +587,6 @@ export default function App() {
         </div>
       )}
       
-      {/* Help popup */}
       {showHelpPopup && (
         <div style={popupStyle}>
           <h3 style={{ borderBottom: '1px solid rgba(80, 120, 220, 0.3)', paddingBottom: '0.5rem' }}>
@@ -659,7 +611,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MultiTrackLooper UI control panel */}
       <MultiTrackLooper sceneRef={sceneRef} ref={looperRef} />
     </div>
   )
