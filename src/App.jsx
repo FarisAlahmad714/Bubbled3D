@@ -5,6 +5,7 @@
   import Scene from './components/Scene';
   import MultiTrackLooper from './components/MultiTrackLooper';
   import AdManager from './components/AdManager'; // Import the AdManager component
+  import CameraBeamLight from './components/CameraBeamLight';
 
   // Performance preset configurations
   const PERFORMANCE_PRESETS = {
@@ -356,24 +357,41 @@
     return (
       <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
         <Canvas 
-          style={{ width: '100%', height: '100%' }} 
-          dpr={Math.min(1.5, window.devicePixelRatio)} // Cap DPR for speed
-          frameloop={performanceMode === 'high' ? 'always' : 'demand'} // Demand for low/med
-          gl={{ 
-            antialias: performanceMode === 'high', // Disable AA on low/med
-            powerPreference: 'high-performance',
-            alpha: true
-          }}
-        >
-          <Scene 
-            ref={sceneRef} 
-            onKeyPress={handleKeyPress} 
-            visualMode={visualMode}
-            performanceSettings={PERFORMANCE_PRESETS[performanceMode]}
-          />
-          <AdManager performanceSettings={PERFORMANCE_PRESETS[performanceMode]} /> {/* Add AdManager here */}
-          <directionalLight position={[-10, 10, -10]} intensity={0.5} />
-        </Canvas>
+      style={{ width: '100%', height: '100%' }} 
+      dpr={Math.min(1.5, window.devicePixelRatio)}
+      frameloop={performanceMode === 'high' ? 'always' : 'demand'}
+      gl={{ 
+        antialias: performanceMode === 'high',
+        powerPreference: 'high-performance',
+        alpha: true
+      }}
+      shadows // Enable shadows for better visual depth
+    >
+      <Scene 
+        ref={sceneRef} 
+        onKeyPress={handleKeyPress} 
+        visualMode={visualMode}
+        performanceSettings={PERFORMANCE_PRESETS[performanceMode]}
+      />
+      
+      {/* Enhanced lighting and proper placement of AdManager */}
+      <AdManager performanceSettings={PERFORMANCE_PRESETS[performanceMode]} />
+      
+      {/* Camera beam light to illuminate in the direction the camera is looking */}
+      <CameraBeamLight color="#aaddff" intensity={1.8} />
+      
+      {/* Global lighting - increased intensity */}
+      <ambientLight intensity={0.4} />
+      <directionalLight 
+        position={[-10, 10, -10]} 
+        intensity={0.8} 
+        castShadow 
+      />
+      
+      {/* Optional: Add fog for depth and atmosphere */}
+      <fog attach="fog" args={['#030318', 10, 50]} />
+    </Canvas>
+
 
         <div style={controlsStyle}>
           <div style={buttonGroupStyle}>
