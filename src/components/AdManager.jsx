@@ -1,128 +1,84 @@
-import { useState, useEffect } from 'react';
-import * as THREE from 'three';
+// src/components/AdManager.jsx
+
+import { useState, useEffect, createRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import AdSpaceship from './AdSpaceship';
 
-export default function AdManager({ performanceSettings }) {
+export default function AdManager({ performanceSettings, onSpacecraftVisible, onSetSpacecraftRefs }) {
   const [ads, setAds] = useState([
     {
       id: 1,
-      modelPath: '/models/craft1.obj',
+      modelPath: '/models/craft.obj',
       bannerUrl: '/ads/ad1.png',
-      speedFactor: 0.1,
-      animationType: 'rotate',
+      speedFactor: 1.0,
+      animationType: 'none',
       positionOffset: [0, 0, 0],
     },
     {
       id: 2,
       modelPath: '/models/craft1.obj',
       bannerUrl: '/ads/ad2.png',
-      speedFactor: 0.3,
-      animationType: 'pulse',
+      speedFactor: 1.0,
+      animationType: 'none',
       positionOffset: [0, 2, 0],
     },
     {
       id: 3,
-      modelPath: '/models/craft1.obj',
+      modelPath: '/models/craft2.obj',
       bannerUrl: '/ads/ad3.png',
-      speedFactor: 0.5,
+      speedFactor: 1.0,
       animationType: 'none',
       positionOffset: [0, 4, 0],
     },
   ]);
 
   const [activeAds, setActiveAds] = useState([]);
+  const [isSpacecraftVisible, setIsSpacecraftVisible] = useState(false);
 
-  // Determine max spaceships based on performance
-  const maxAds = performanceSettings.particleCount <= 100 ? 1 : 
+  // Create refs for each spacecraft
+  const spacecraftRefs = useRef(
+    ads.map(() => createRef())
+  );
+
+  const maxAds = performanceSettings.particleCount <= 100 ? 1 :
                  performanceSettings.particleCount <= 300 ? 2 : 3;
 
   useEffect(() => {
-    // Initialize with first ads
     setActiveAds(ads.slice(0, maxAds));
+    // Pass refs to parent (Scene.jsx)
+    if (onSetSpacecraftRefs) {
+      onSetSpacecraftRefs(spacecraftRefs.current);
+    }
+  }, [ads, maxAds, onSetSpacecraftRefs]);
 
-    // Rotate ads every 30 seconds
-    const interval = setInterval(() => {
-      setActiveAds((prev) => {
-        if (!prev.length) return ads.slice(0, 1);
-        
-        const lastAdId = prev[prev.length - 1].id;
-        const nextAdIndex = ads.findIndex(ad => ad.id === lastAdId);
-        const newIndex = (nextAdIndex + 1) % ads.length;
-        
-        // Rotate by removing first and adding next
-        return [...prev.slice(1), ads[newIndex]];
-      });
-    }, 30000);
+  useFrame(({ clock }) => {
+    const cycleTime = 120;
+    const flyByDuration = 10;
+    const elapsed = clock.getElapsedTime() % cycleTime;
 
-    return () => clearInterval(interval);
-  }, [ads, maxAds]);
+    const anyVisible = elapsed < flyByDuration;
+    if (anyVisible !== isSpacecraftVisible) {
+      setIsSpacecraftVisible(anyVisible);
+      if (onSpacecraftVisible) {
+        onSpacecraftVisible(anyVisible);
+      }
+    }
+  });
 
   return (
     <>
-      {/* Bright ambient light for base visibility */}
-      <ambientLight intensity={0.7} color="#ffffff" />
-      
-      {/* Main key light - bright directional light */}
-      <directionalLight 
-        position={[10, 20, 10]} 
-        intensity={1.5} 
-        color="#ffffff" 
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-      />
-      
-      {/* Fill light from opposite side */}
-      <directionalLight 
-        position={[-10, 5, -10]} 
-        intensity={0.8} 
-        color="#aaccff" 
-      />
-      
-      {/* Dramatic top-down spotlight */}
-      <spotLight 
-        position={[0, 30, 0]} 
-        angle={0.3} 
-        penumbra={0.8} 
-        intensity={2.0} 
-        castShadow 
-        distance={50}
-        color="#ffffff"
-      />
-      
-      {/* Colored rim lights for visual interest */}
-      <pointLight 
-        position={[20, 5, 20]} 
-        intensity={1.5}
-        color="#3366ff"
-        distance={40}
-      />
-      
-      <pointLight 
-        position={[-20, 5, -20]} 
-        intensity={1.5}
-        color="#ff6633"
-        distance={40}
-      />
-      
-      {/* Ground fill light to illuminate from below */}
-      <pointLight
-        position={[0, -10, 0]}
-        intensity={0.8}
-        color="#66aaff"
-        distance={30}
-      />
-      
-      {/* The spaceships */}
+      <ambientLight intensity={0.5} />
+      <directionalLight position={[10, 10, 10]} intensity={1} />
       <group>
-        {activeAds.map(ad => (
+        {activeAds.map((ad, index) => (
           <AdSpaceship
+            ref={spacecraftRefs.current[index]}
             key={ad.id}
             modelPath={ad.modelPath}
             bannerUrl={ad.bannerUrl}
-            speedFactor={ad.speedFactor || 1.0}
-            animationType={ad.animationType || 'none'}
-            positionOffset={ad.positionOffset || [0, 0, 0]}
+            speedFactor={ad.speedFactor}
+            animationType={ad.animationType}
+            positionOffset={ad.positionOffset}
           />
         ))}
       </group>

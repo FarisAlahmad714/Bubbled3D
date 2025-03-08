@@ -18,7 +18,7 @@ import ParticleInteraction from './ParticleInteraction';
 import Lighting from './Lighting';
 import StarBase from './StarBase';
 
-const Scene = forwardRef(function Scene(props, ref) {
+const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
   const [spheres, setSpheres] = useState([]);
   const [rings, setRings] = useState([]); // New state for ring effects
   const [cameraMode, setCameraMode] = useState('orbit');
@@ -41,271 +41,271 @@ const Scene = forwardRef(function Scene(props, ref) {
   });
 
   // Direct 1:1 mapping of all 32 sounds to individual keyboard keys
-const keyData = {
-  // TOP ROW (Numbers 1-0)
-  '1': { 
-    color: '#ff5252', 
-    src: '/Sounds/clap1.mp3', 
-    scale: 1.0, 
-    lifetime: 3000, 
-    pulseSpeed: 0.7,
-    category: 'Clap'
-  },
-  '2': { 
-    color: '#ff7752', 
-    src: '/Sounds/clap2.mp3', 
-    scale: 1.1, 
-    lifetime: 3000, 
-    pulseSpeed: 0.7,
-    category: 'Clap'
-  },
-  '3': { 
-    color: '#ff9c52', 
-    src: '/Sounds/clap3.mp3', 
-    scale: 1.2, 
-    lifetime: 3000, 
-    pulseSpeed: 0.7,
-    category: 'Clap'
-  },
-  '4': { 
-    color: '#ffc152', 
-    src: '/Sounds/drum1.mp3', 
-    scale: 1.0, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  '5': { 
-    color: '#ffe552', 
-    src: '/Sounds/drum2.mp3', 
-    scale: 1.1, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  '6': { 
-    color: '#f0ff52', 
-    src: '/Sounds/drum3.mp3', 
-    scale: 1.2, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  '7': { 
-    color: '#cbff52', 
-    src: '/Sounds/drum4.mp3', 
-    scale: 1.3, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  '8': { 
-    color: '#a6ff52', 
-    src: '/Sounds/drum5.mp3', 
-    scale: 1.1, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  '9': { 
-    color: '#81ff52', 
-    src: '/Sounds/drum6.mp3', 
-    scale: 1.2, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  '0': { 
-    color: '#52ff5e', 
-    src: '/Sounds/drum7.mp3', 
-    scale: 1.3, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
+  const keyData = {
+    // TOP ROW (Numbers 1-0)
+    '1': { 
+      color: '#ff5252', 
+      src: '/Sounds/clap1.mp3', 
+      scale: 1.0, 
+      lifetime: 3000, 
+      pulseSpeed: 0.7,
+      category: 'Clap'
+    },
+    '2': { 
+      color: '#ff7752', 
+      src: '/Sounds/clap2.mp3', 
+      scale: 1.1, 
+      lifetime: 3000, 
+      pulseSpeed: 0.7,
+      category: 'Clap'
+    },
+    '3': { 
+      color: '#ff9c52', 
+      src: '/Sounds/clap3.mp3', 
+      scale: 1.2, 
+      lifetime: 3000, 
+      pulseSpeed: 0.7,
+      category: 'Clap'
+    },
+    '4': { 
+      color: '#ffc152', 
+      src: '/Sounds/drum1.mp3', 
+      scale: 1.0, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    '5': { 
+      color: '#ffe552', 
+      src: '/Sounds/drum2.mp3', 
+      scale: 1.1, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    '6': { 
+      color: '#f0ff52', 
+      src: '/Sounds/drum3.mp3', 
+      scale: 1.2, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    '7': { 
+      color: '#cbff52', 
+      src: '/Sounds/drum4.mp3', 
+      scale: 1.3, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    '8': { 
+      color: '#a6ff52', 
+      src: '/Sounds/drum5.mp3', 
+      scale: 1.1, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    '9': { 
+      color: '#81ff52', 
+      src: '/Sounds/drum6.mp3', 
+      scale: 1.2, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    '0': { 
+      color: '#52ff5e', 
+      src: '/Sounds/drum7.mp3', 
+      scale: 1.3, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
 
-  // QWERTY ROW
-  'q': { 
-    color: '#52ff83', 
-    src: '/Sounds/drum8.mp3', 
-    scale: 1.2, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  'w': { 
-    color: '#52ffa8', 
-    src: '/Sounds/drum9.mp3', 
-    scale: 1.1, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  'e': { 
-    color: '#52ffcd', 
-    src: '/Sounds/drum10.mp3', 
-    scale: 1.2, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  'r': { 
-    color: '#52fff2', 
-    src: '/Sounds/drum11.mp3', 
-    scale: 1.3, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  't': { 
-    color: '#52d4ff', 
-    src: '/Sounds/drum12.mp3', 
-    scale: 1.1, 
-    lifetime: 3500, 
-    pulseSpeed: 0.6,
-    category: 'Drum'
-  },
-  'y': { 
-    color: '#52afff', 
-    src: '/Sounds/drumsnare9.mp3', 
-    scale: 1.4, 
-    lifetime: 3500, 
-    pulseSpeed: 0.8,
-    category: 'Snare'
-  },
-  'u': { 
-    color: '#528aff', 
-    src: '/Sounds/intro.mp3', 
-    scale: 1.5, 
-    lifetime: 6000, 
-    pulseSpeed: 0.5,
-    category: 'Intro'
-  },
-  'i': { 
-    color: '#5266ff', 
-    src: '/Sounds/intro2.mp3', 
-    scale: 1.6, 
-    lifetime: 6000, 
-    pulseSpeed: 0.5,
-    category: 'Intro'
-  },
-  'o': { 
-    color: '#6652ff', 
-    src: '/Sounds/intro3.mp3', 
-    scale: 1.7, 
-    lifetime: 6000, 
-    pulseSpeed: 0.5,
-    category: 'Intro'
-  },
-  'p': { 
-    color: '#8b52ff', 
-    src: '/Sounds/piano1.mp3', 
-    scale: 1.8, 
-    lifetime: 7000, 
-    pulseSpeed: 0.4,
-    category: 'Piano'
-  },
+    // QWERTY ROW
+    'q': { 
+      color: '#52ff83', 
+      src: '/Sounds/drum8.mp3', 
+      scale: 1.2, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    'w': { 
+      color: '#52ffa8', 
+      src: '/Sounds/drum9.mp3', 
+      scale: 1.1, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    'e': { 
+      color: '#52ffcd', 
+      src: '/Sounds/drum10.mp3', 
+      scale: 1.2, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    'r': { 
+      color: '#52fff2', 
+      src: '/Sounds/drum11.mp3', 
+      scale: 1.3, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    't': { 
+      color: '#52d4ff', 
+      src: '/Sounds/drum12.mp3', 
+      scale: 1.1, 
+      lifetime: 3500, 
+      pulseSpeed: 0.6,
+      category: 'Drum'
+    },
+    'y': { 
+      color: '#52afff', 
+      src: '/Sounds/drumsnare9.mp3', 
+      scale: 1.4, 
+      lifetime: 3500, 
+      pulseSpeed: 0.8,
+      category: 'Snare'
+    },
+    'u': { 
+      color: '#528aff', 
+      src: '/Sounds/intro.mp3', 
+      scale: 1.5, 
+      lifetime: 6000, 
+      pulseSpeed: 0.5,
+      category: 'Intro'
+    },
+    'i': { 
+      color: '#5266ff', 
+      src: '/Sounds/intro2.mp3', 
+      scale: 1.6, 
+      lifetime: 6000, 
+      pulseSpeed: 0.5,
+      category: 'Intro'
+    },
+    'o': { 
+      color: '#6652ff', 
+      src: '/Sounds/intro3.mp3', 
+      scale: 1.7, 
+      lifetime: 6000, 
+      pulseSpeed: 0.5,
+      category: 'Intro'
+    },
+    'p': { 
+      color: '#8b52ff', 
+      src: '/Sounds/piano1.mp3', 
+      scale: 1.8, 
+      lifetime: 7000, 
+      pulseSpeed: 0.4,
+      category: 'Piano'
+    },
 
-  // ASDF ROW
-  'a': { 
-    color: '#af52ff', 
-    src: '/Sounds/piano2.mp3', 
-    scale: 1.5, 
-    lifetime: 7000, 
-    pulseSpeed: 0.4,
-    category: 'Piano'
-  },
-  's': { 
-    color: '#d452ff', 
-    src: '/Sounds/piano3.mp3', 
-    scale: 1.5, 
-    lifetime: 7000, 
-    pulseSpeed: 0.4,
-    category: 'Piano'
-  },
-  'd': { 
-    color: '#f952ff', 
-    src: '/Sounds/loop1.mp3', 
-    scale: 1.3, 
-    lifetime: 8000, 
-    pulseSpeed: 0.4,
-    category: 'Loop'
-  },
-  'f': { 
-    color: '#ff52d4', 
-    src: '/Sounds/loop2.mp3', 
-    scale: 1.3, 
-    lifetime: 8000, 
-    pulseSpeed: 0.4,
-    category: 'Loop'
-  },
-  'g': { 
-    color: '#ff52af', 
-    src: '/Sounds/loop3.mp3', 
-    scale: 1.3, 
-    lifetime: 8000, 
-    pulseSpeed: 0.4,
-    category: 'Loop'
-  },
-  'h': { 
-    color: '#ff528a', 
-    src: '/Sounds/loop4.mp3', 
-    scale: 1.3, 
-    lifetime: 8000, 
-    pulseSpeed: 0.4,
-    category: 'Loop'
-  },
-  'j': { 
-    color: '#ff5266', 
-    src: '/Sounds/loop5.mp3', 
-    scale: 1.3, 
-    lifetime: 8000, 
-    pulseSpeed: 0.4,
-    category: 'Loop'
-  },
-  'k': { 
-    color: '#ff7752', 
-    src: '/Sounds/loop6.mp3', 
-    scale: 1.3, 
-    lifetime: 8000, 
-    pulseSpeed: 0.4,
-    category: 'Loop'
-  },
-  'l': { 
-    color: '#ff9c52', 
-    src: '/Sounds/loop7.mp3', 
-    scale: 1.3, 
-    lifetime: 8000, 
-    pulseSpeed: 0.4,
-    category: 'Loop'
-  },
+    // ASDF ROW
+    'a': { 
+      color: '#af52ff', 
+      src: '/Sounds/piano2.mp3', 
+      scale: 1.5, 
+      lifetime: 7000, 
+      pulseSpeed: 0.4,
+      category: 'Piano'
+    },
+    's': { 
+      color: '#d452ff', 
+      src: '/Sounds/piano3.mp3', 
+      scale: 1.5, 
+      lifetime: 7000, 
+      pulseSpeed: 0.4,
+      category: 'Piano'
+    },
+    'd': { 
+      color: '#f952ff', 
+      src: '/Sounds/loop1.mp3', 
+      scale: 1.3, 
+      lifetime: 8000, 
+      pulseSpeed: 0.4,
+      category: 'Loop'
+    },
+    'f': { 
+      color: '#ff52d4', 
+      src: '/Sounds/loop2.mp3', 
+      scale: 1.3, 
+      lifetime: 8000, 
+      pulseSpeed: 0.4,
+      category: 'Loop'
+    },
+    'g': { 
+      color: '#ff52af', 
+      src: '/Sounds/loop3.mp3', 
+      scale: 1.3, 
+      lifetime: 8000, 
+      pulseSpeed: 0.4,
+      category: 'Loop'
+    },
+    'h': { 
+      color: '#ff528a', 
+      src: '/Sounds/loop4.mp3', 
+      scale: 1.3, 
+      lifetime: 8000, 
+      pulseSpeed: 0.4,
+      category: 'Loop'
+    },
+    'j': { 
+      color: '#ff5266', 
+      src: '/Sounds/loop5.mp3', 
+      scale: 1.3, 
+      lifetime: 8000, 
+      pulseSpeed: 0.4,
+      category: 'Loop'
+    },
+    'k': { 
+      color: '#ff7752', 
+      src: '/Sounds/loop6.mp3', 
+      scale: 1.3, 
+      lifetime: 8000, 
+      pulseSpeed: 0.4,
+      category: 'Loop'
+    },
+    'l': { 
+      color: '#ff9c52', 
+      src: '/Sounds/loop7.mp3', 
+      scale: 1.3, 
+      lifetime: 8000, 
+      pulseSpeed: 0.4,
+      category: 'Loop'
+    },
 
-  // ZXCV ROW
-  'z': { 
-    color: '#ffc152', 
-    src: '/Sounds/loop8.mp3', 
-    scale: 1.5, 
-    lifetime: 8000, 
-    pulseSpeed: 0.3,
-    category: 'Loop'
-  },
-  'x': { 
-    color: '#ffe552', 
-    src: '/Sounds/loop9.mp3', 
-    scale: 1.5, 
-    lifetime: 8000, 
-    pulseSpeed: 0.3,
-    category: 'Loop'
-  },
-  'c': { 
-    color: '#f0ff52', 
-    src: '/Sounds/loop10.mp3', 
-    scale: 1.5, 
-    lifetime: 8000, 
-    pulseSpeed: 0.3,
-    category: 'Loop'
-  }
-};
+    // ZXCV ROW
+    'z': { 
+      color: '#ffc152', 
+      src: '/Sounds/loop8.mp3', 
+      scale: 1.5, 
+      lifetime: 8000, 
+      pulseSpeed: 0.3,
+      category: 'Loop'
+    },
+    'x': { 
+      color: '#ffe552', 
+      src: '/Sounds/loop9.mp3', 
+      scale: 1.5, 
+      lifetime: 8000, 
+      pulseSpeed: 0.3,
+      category: 'Loop'
+    },
+    'c': { 
+      color: '#f0ff52', 
+      src: '/Sounds/loop10.mp3', 
+      scale: 1.5, 
+      lifetime: 8000, 
+      pulseSpeed: 0.3,
+      category: 'Loop'
+    }
+  };
 
   // Track position storage - keeps spheres from the same track in similar areas
   const trackPositions = useRef({});
@@ -320,6 +320,9 @@ const keyData = {
   const soundIntensity = useRef(0);
   const peakIntensity = useRef(0);
   const intensityDecay = useRef(0.95);
+
+  // Track the spacecraft to follow
+  const activeSpacecraftRef = useRef(null);
 
   useFrame(({ clock }) => {
     const time = clock.getElapsedTime();
@@ -336,15 +339,42 @@ const keyData = {
     soundIntensity.current *= intensityDecay.current;
     if (soundIntensity.current < 0.01) soundIntensity.current = 0;
 
+    // Find the first visible spacecraft to follow
+    let targetSpacecraftPosition = null;
+    if (cameraMode === 'follow' && spacecraftRefs && spacecraftRefs.length > 0) {
+      for (const spacecraftRef of spacecraftRefs) {
+        if (spacecraftRef.current) {
+          const position = spacecraftRef.current.getPosition();
+          // Check if the spacecraft is visible (not at the hidden position)
+          if (position.z > -1000) { // Matches AdSpaceship's hidden position
+            targetSpacecraftPosition = position;
+            activeSpacecraftRef.current = position;
+            break;
+          }
+        }
+      }
+    }
+
     if (cameraMode === 'orbit') {
       const orbitX = Math.sin(time * cameraParams.current.speed) * cameraParams.current.orbitRadius;
       const orbitZ = Math.cos(time * cameraParams.current.speed) * cameraParams.current.orbitRadius;
       cameraPositionRef.current.set(orbitX, cameraParams.current.orbitHeight, orbitZ);
       camera.position.lerp(cameraPositionRef.current, 0.01);
       camera.lookAt(0, 0, 0);
-    } else if (cameraMode === 'follow' && activeSphereRef.current) {
-      cameraTargetRef.current.lerp(activeSphereRef.current, cameraParams.current.followSpeed);
-      camera.lookAt(cameraTargetRef.current);
+    } else if (cameraMode === 'follow') {
+      if (targetSpacecraftPosition) {
+        // Follow the spacecraft
+        cameraTargetRef.current.lerp(targetSpacecraftPosition, cameraParams.current.followSpeed);
+        camera.lookAt(cameraTargetRef.current);
+        // Position the camera behind the spacecraft
+        const offset = new THREE.Vector3(0, 2, 5); // Behind and slightly above
+        const cameraPos = targetSpacecraftPosition.clone().add(offset);
+        camera.position.lerp(cameraPos, cameraParams.current.followSpeed);
+      } else if (activeSphereRef.current) {
+        // Fallback to following a sphere if no spacecraft is visible
+        cameraTargetRef.current.lerp(activeSphereRef.current, cameraParams.current.followSpeed);
+        camera.lookAt(cameraTargetRef.current);
+      }
     } else if (cameraMode === 'panorama') {
       cameraPanoramaAngle.current += cameraParams.current.panoramaSpeed;
       const panoramaX = Math.sin(cameraPanoramaAngle.current) * cameraParams.current.panoramaRadius;
@@ -670,6 +700,11 @@ const keyData = {
     lastActiveTime.current = Date.now();
   }
 
+  function setCameraMode(mode) {
+    setCameraMode(mode);
+    lastActiveTime.current = Date.now();
+  }
+
   function setCameraSpeed(speed) {
     cameraParams.current.speed = speed;
     cameraParams.current.panoramaSpeed = speed / 4;
@@ -687,6 +722,7 @@ const keyData = {
     stopLoop,
     deleteLoop,
     toggleCameraMode,
+    setCameraMode,
     setCameraSpeed,
     setPerformanceMode,
     getSoundIntensity: () => soundIntensity.current,
