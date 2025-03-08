@@ -1,6 +1,6 @@
 // src/components/AdManager.jsx
 
-import { useState, useEffect, createRef } from 'react';
+import { useState, useEffect, createRef, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import AdSpaceship from './AdSpaceship';
 

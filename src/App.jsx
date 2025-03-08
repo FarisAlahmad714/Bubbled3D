@@ -44,13 +44,17 @@ export default function App() {
   const [soundIntensity, setSoundIntensity] = useState(0);
   const [performanceMode, setPerformanceMode] = useState('medium');
   const [fps, setFps] = useState(0);
-
+  const [spacecraftRefs, setSpacecraftRefs] = useState([]);
   const sceneRef = useRef(null);
   const looperRef = useRef(null);
   const controlsTimeoutRef = useRef(null);
   const frameCountRef = useRef(0);
   const lastFrameTimeRef = useRef(performance.now());
 
+
+  const handleSetSpacecraftRefs = (refs) => {
+    setSpacecraftRefs(refs);
+  };
   // Handle spacecraft visibility to toggle camera mode
   const handleSpacecraftVisibility = (isVisible) => {
     if (isVisible) {
@@ -397,11 +401,13 @@ export default function App() {
           onKeyPress={handleKeyPress} 
           visualMode={visualMode}
           performanceSettings={PERFORMANCE_PRESETS[performanceMode]}
+          spacecraftRefs={spacecraftRefs}
         />
         <AdManager 
-          performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
-          onSpacecraftVisible={handleSpacecraftVisibility}
-        />
+    performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
+    onSpacecraftVisible={handleSpacecraftVisibility}
+    onSetSpacecraftRefs={handleSetSpacecraftRefs} 
+  />
         <CameraBeamLight color="#aaddff" intensity={1.8} />
         <ambientLight intensity={0.4} />
         <directionalLight 

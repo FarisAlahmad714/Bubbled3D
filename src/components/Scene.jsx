@@ -700,7 +700,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
     lastActiveTime.current = Date.now();
   }
 
-  function setCameraMode(mode) {
+  function changeCameraMode(mode) { 
     setCameraMode(mode);
     lastActiveTime.current = Date.now();
   }
@@ -722,12 +722,12 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
     stopLoop,
     deleteLoop,
     toggleCameraMode,
-    setCameraMode,
+    setCameraMode: changeCameraMode,  // Update this reference
     setCameraSpeed,
     setPerformanceMode,
     getSoundIntensity: () => soundIntensity.current,
     getCurrentCameraMode: () => cameraMode,
-    clearSoundsForTrack, // Added for MultiTrackLooper compatibility
+    clearSoundsForTrack,
   }));
 
   // Ring component for recorded events
