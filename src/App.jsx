@@ -6,6 +6,7 @@ import './App.css';
 import MultiTrackLooper from './components/MultiTrackLooper';
 import AdManager from './components/AdManager';
 import CameraBeamLight from './components/CameraBeamLight';
+import DebugUI from './components/DebugUI';
 
 // Performance preset configurations
 const PERFORMANCE_PRESETS = {
@@ -50,12 +51,13 @@ export default function App() {
   const controlsTimeoutRef = useRef(null);
   const frameCountRef = useRef(0);
   const lastFrameTimeRef = useRef(performance.now());
+  const spacecraftRefsArray = useRef([]);
 
   // Remove redundant isEntered state since entered already exists
   // const [isEntered, setIsEntered] = useState(false);
 
   const handleSetSpacecraftRefs = (refs) => {
-    setSpacecraftRefs(refs);
+    spacecraftRefsArray.current = refs;
   };
 
   const handleSpacecraftVisibility = (isVisible) => {
@@ -654,6 +656,7 @@ export default function App() {
       )}
 
       <MultiTrackLooper sceneRef={sceneRef} ref={looperRef} />
+      <DebugUI sceneRef={sceneRef} spacecraftRefs={spacecraftRefsArray.current} />
     </div>
   );
 }

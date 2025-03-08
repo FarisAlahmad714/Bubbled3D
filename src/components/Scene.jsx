@@ -125,7 +125,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
       if (targetSpacecraftPosition) {
         cameraTargetRef.current.lerp(targetSpacecraftPosition, cameraParams.current.followSpeed);
         camera.lookAt(cameraTargetRef.current);
-        const offset = new THREE.Vector3(0, 2, 5);
+        const offset = new THREE.Vector3(2, 2, 4);
         const cameraPos = targetSpacecraftPosition.clone().add(offset);
         camera.position.lerp(cameraPos, cameraParams.current.followSpeed);
       } else if (activeSphereRef.current) {
@@ -459,6 +459,17 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
     getSoundIntensity: () => soundIntensity.current,
     getCurrentCameraMode: () => cameraMode,
     clearSoundsForTrack,
+    // Add this debug helper function for DebugUI
+    logCameraInfo: () => {
+      return {
+        position: camera.position.clone(),
+        rotation: camera.rotation.clone(),
+        mode: cameraMode,
+        target: cameraTargetRef.current?.clone() || null
+      };
+    },
+    // Add a function to get the active spacecraft
+    getActiveSpacecraft: () => activeSpacecraftRef.current
   }));
 
   function Ring({ ring }) {
@@ -498,6 +509,25 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
       <ParticleField soundIntensity={soundIntensity.current} performanceSettings={props.performanceSettings} />
       <ParticleInteraction spheres={spheres} soundIntensity={soundIntensity.current} />
       <StarBase soundIntensity={soundIntensity.current} onColorChange={(color) => setOrbColor(color)} />
+      
+      {/* Add debug helpers for visible spacecraft */}
+      {process.env.NODE_ENV === 'development' && spacecraftRefs && spacecraftRefs.map((spacecraftRef, index) => {
+        if (!spacecraftRef?.current) return null;
+        
+        try {
+          const position = spacecraftRef.current.getPosition();
+          if (position.z <= -500) return null; // Don't render helpers for hidden spacecraft
+          
+          return (
+            <group key={`helper-${index}`} position={position}>
+              <axesHelper args={[2]} /> {/* Shows XYZ axes to help with orientation */}
+            </group>
+          );
+        } catch (err) {
+          return null; // Skip if there's an error
+        }
+      })}
+      
       {spheres.map(sphere => (
         <Sphere
           key={sphere.id}
