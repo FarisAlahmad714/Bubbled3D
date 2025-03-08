@@ -49,8 +49,8 @@ export default function AdSpaceship({ modelPath, bannerUrl, speedFactor, animati
   useFrame(({ clock, camera }) => {
     if (!spaceshipRef.current || !pathRef.current) return;
 
-    const cycleTime = 120;      // Fly-by every 2 minutes
-    const flyByDuration = 10;   // Fly-by lasts 10 seconds
+    const cycleTime = 30;     // Fly-by every 2 minutes
+    const flyByDuration =20;  // Fly-by lasts 10 seconds
     const elapsed = clock.getElapsedTime() % cycleTime;
 
     if (elapsed < flyByDuration) {

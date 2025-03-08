@@ -8,7 +8,7 @@ export default function AdManager({ performanceSettings, onSpacecraftVisible, on
   const [ads, setAds] = useState([
     {
       id: 1,
-      modelPath: '/models/craft.obj',
+      modelPath: '/models/craft1.obj',
       bannerUrl: '/ads/ad1.png',
       speedFactor: 1.0,
       animationType: 'none',
@@ -24,7 +24,7 @@ export default function AdManager({ performanceSettings, onSpacecraftVisible, on
     },
     {
       id: 3,
-      modelPath: '/models/craft2.obj',
+      modelPath: '/models/craft1.obj',
       bannerUrl: '/ads/ad3.png',
       speedFactor: 1.0,
       animationType: 'none',
@@ -52,8 +52,8 @@ export default function AdManager({ performanceSettings, onSpacecraftVisible, on
   }, [ads, maxAds, onSetSpacecraftRefs]);
 
   useFrame(({ clock }) => {
-    const cycleTime = 120;
-    const flyByDuration = 10;
+    const cycleTime = 30;
+    const flyByDuration = 20;
     const elapsed = clock.getElapsedTime() % cycleTime;
 
     const anyVisible = elapsed < flyByDuration;

@@ -1,8 +1,8 @@
-  // src/App.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Howler } from 'howler';
 import Scene from './components/Scene';
+import './App.css'; 
 import MultiTrackLooper from './components/MultiTrackLooper';
 import AdManager from './components/AdManager';
 import CameraBeamLight from './components/CameraBeamLight';
@@ -38,7 +38,7 @@ export default function App() {
   const [showHelpPopup, setShowHelpPopup] = useState(false);
   const [showPerformancePopup, setShowPerformancePopup] = useState(false);
   const [cameraMode, setCameraMode] = useState('orbit');
-  const [userCameraMode, setUserCameraMode] = useState('orbit'); // Track user-selected mode
+  const [userCameraMode, setUserCameraMode] = useState('orbit');
   const [visualMode, setVisualMode] = useState('default');
   const [cameraSpeed, setCameraSpeed] = useState(0.5);
   const [soundIntensity, setSoundIntensity] = useState(0);
@@ -51,20 +51,20 @@ export default function App() {
   const frameCountRef = useRef(0);
   const lastFrameTimeRef = useRef(performance.now());
 
+  // Remove redundant isEntered state since entered already exists
+  // const [isEntered, setIsEntered] = useState(false);
 
   const handleSetSpacecraftRefs = (refs) => {
     setSpacecraftRefs(refs);
   };
-  // Handle spacecraft visibility to toggle camera mode
+
   const handleSpacecraftVisibility = (isVisible) => {
     if (isVisible) {
-      // Switch to follow mode when spacecraft is visible
       if (sceneRef.current?.setCameraMode) {
         sceneRef.current.setCameraMode('follow');
         setCameraMode('follow');
       }
     } else {
-      // Revert to user's preferred mode when spacecraft is gone
       if (sceneRef.current?.setCameraMode) {
         sceneRef.current.setCameraMode(userCameraMode);
         setCameraMode(userCameraMode);
@@ -123,7 +123,6 @@ export default function App() {
       }
       if (sceneRef.current.getCurrentCameraMode) {
         const currentMode = sceneRef.current.getCurrentCameraMode();
-        // Only update userCameraMode if not in follow mode due to spacecraft
         if (currentMode !== 'follow') {
           setUserCameraMode(currentMode);
         }
@@ -143,7 +142,7 @@ export default function App() {
     if (sceneRef.current?.toggleCameraMode) {
       sceneRef.current.toggleCameraMode();
       const newMode = sceneRef.current.getCurrentCameraMode();
-      setUserCameraMode(newMode); // Update user preference
+      setUserCameraMode(newMode);
     }
   };
 
@@ -191,44 +190,60 @@ export default function App() {
     }
   }
 
-  const landingStyle = {
-    width: '100vw',
-    height: '100vh',
-    background: 'linear-gradient(to bottom, #000000, #101025)',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: '#fff',
-    fontFamily: 'Arial, sans-serif'
+  // Component to generate animated bubbles
+  const Bubbles = () => {
+    const bubbles = Array.from({ length: 30 }, (_, i) => ({
+      left: `${Math.random() * 100}%`,
+      bottom: `${Math.random() * 100}%`,
+      size: `${20 + Math.random() * 50}px`, // 20px to 70px
+      duration: `${10 + Math.random() * 20}s`, // 10s to 30s
+      delay: `${Math.random() * 5}s`, // 0s to 5s
+      sway: `${5 + Math.random() * 10}px`, // 5px to 15px
+    }));
+
+    return (
+      <>
+        {bubbles.map((bubble, index) => (
+          <div
+            key={index}
+            className="bubble"
+            style={{
+              left: bubble.left,
+              bottom: bubble.bottom,
+              width: bubble.size,
+              height: bubble.size,
+              animationDuration: bubble.duration,
+              animationDelay: bubble.delay,
+              '--sway': bubble.sway,
+            }}
+          />
+        ))}
+      </>
+    );
   };
 
-  const landingTitleStyle = {
-    fontSize: '3rem',
-    marginBottom: '1rem',
-    textShadow: '0 0 10px rgba(120, 160, 255, 0.8)',
-    animation: 'pulse 2s infinite'
-  };
+  if (!entered) {
+    return (
+      <div className="landing">
+        <Bubbles />
+        <h1 className="title">
+          {'Bubbled'.split('').map((char, index) => (
+            <span key={index} style={{ animationDelay: `${index * 0.1}s` }}>
+              {char}
+            </span>
+          ))}
+        </h1>
+        <p className="description">
+          Welcome to a dynamic 3D audio-visual experience. Press keys to create sounds and visual elements,
+          record sequences, and watch as the environment responds to your music.
+        </p>
+        <button className="enter-button" onClick={handleEnterClick}>
+          Enter Experience
+        </button>
+      </div>
+    );
+  }
 
-  const landingDescStyle = {
-    fontSize: '1.2rem',
-    maxWidth: '600px',
-    textAlign: 'center',
-    marginBottom: '2rem',
-    lineHeight: '1.6'
-  };
-
-  const enterButtonStyle = {
-    padding: '1rem 2rem',
-    fontSize: '1.5rem',
-    background: 'linear-gradient(45deg, #4466ff, #aa44ff)',
-    border: 'none',
-    borderRadius: '50px',
-    color: 'white',
-    cursor: 'pointer',
-    boxShadow: '0 0 15px rgba(120, 160, 255, 0.5)',
-    transition: 'all 0.3s ease'
-  };
 
   const controlsStyle = {
     position: 'absolute',
@@ -363,26 +378,7 @@ export default function App() {
     transition: 'all 0.2s ease'
   });
 
-  if (!entered) {
-    return (
-      <div style={landingStyle}>
-        <h1 style={landingTitleStyle}>Bubbled</h1>
-        <p style={landingDescStyle}>
-          Welcome to a dynamic 3D audio-visual experience. Press keys to create sounds and visual elements,
-          record sequences, and watch as the environment responds to your music.
-        </p>
-        <button 
-          style={enterButtonStyle} 
-          onClick={handleEnterClick}
-          onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-          onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-        >
-          Enter Experience
-        </button>
-      </div>
-    );
-  }
-
+ 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
       <Canvas 
@@ -404,10 +400,10 @@ export default function App() {
           spacecraftRefs={spacecraftRefs}
         />
         <AdManager 
-    performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
-    onSpacecraftVisible={handleSpacecraftVisibility}
-    onSetSpacecraftRefs={handleSetSpacecraftRefs} 
-  />
+          performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
+          onSpacecraftVisible={handleSpacecraftVisibility}
+          onSetSpacecraftRefs={handleSetSpacecraftRefs} 
+        />
         <CameraBeamLight color="#aaddff" intensity={1.8} />
         <ambientLight intensity={0.4} />
         <directionalLight 
