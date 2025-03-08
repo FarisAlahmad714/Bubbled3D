@@ -9,31 +9,13 @@ export default function AdManager({ performanceSettings, onSpacecraftVisible, on
   const [ads, setAds] = useState([
     {
       id: 1,
-      modelPath: '/models/craft.obj',
+      modelPath: '/models/craft1.obj',
       bannerUrl: '/ads/ad1.png',
       speedFactor: 1.0,
       animationType: 'none',
       // Position offset moved back to original
       positionOffset: [0, 0, 0],
-    },
-    {
-      id: 2,
-      modelPath: '/models/craft1.obj',
-      bannerUrl: '/ads/ad2.png',
-      speedFactor: 1.0,
-      animationType: 'none',
-      // Spread out vertically
-      positionOffset: [0, 4, 0],  
-    },
-    {
-      id: 3,
-      modelPath: '/models/craft2.obj',
-      bannerUrl: '/ads/ad3.png',
-      speedFactor: 1.0,
-      animationType: 'none',
-      // Spread out vertically further
-      positionOffset: [0, 8, 0],  
-    },
+    }
   ]);
 
   const [activeAds, setActiveAds] = useState([]);

@@ -2,11 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Howler } from 'howler';
 import Scene from './components/Scene';
-import './App.css'; 
+import './App.css';
 import MultiTrackLooper from './components/MultiTrackLooper';
 import AdManager from './components/AdManager';
 import CameraBeamLight from './components/CameraBeamLight';
 import DebugUI from './components/DebugUI';
+import EnhancedBubblesTitle from './components/EnhancedBubblesTitle';
 
 // Performance preset configurations
 const PERFORMANCE_PRESETS = {
@@ -46,15 +47,17 @@ export default function App() {
   const [performanceMode, setPerformanceMode] = useState('medium');
   const [fps, setFps] = useState(0);
   const [spacecraftRefs, setSpacecraftRefs] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
+  
   const sceneRef = useRef(null);
   const looperRef = useRef(null);
   const controlsTimeoutRef = useRef(null);
   const frameCountRef = useRef(0);
   const lastFrameTimeRef = useRef(performance.now());
   const spacecraftRefsArray = useRef([]);
-
-  // Remove redundant isEntered state since entered already exists
-  // const [isEntered, setIsEntered] = useState(false);
+  const particleContainerRef = useRef(null);
 
   const handleSetSpacecraftRefs = (refs) => {
     spacecraftRefsArray.current = refs;
@@ -73,6 +76,38 @@ export default function App() {
       }
     }
   };
+
+  // Handle mouse movement for interactive elements
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      setMousePosition({
+        x: e.clientX / window.innerWidth,
+        y: e.clientY / window.innerHeight
+      });
+    };
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+  
+  // Simulate loading progress on initial load
+  useEffect(() => {
+    if (!entered && isLoading) {
+      let interval = setInterval(() => {
+        setLoadingProgress(prev => {
+          const newProgress = prev + (Math.random() * 15);
+          if (newProgress >= 100) {
+            clearInterval(interval);
+            setTimeout(() => setIsLoading(false), 500);
+            return 100;
+          }
+          return newProgress;
+        });
+      }, 200);
+      
+      return () => clearInterval(interval);
+    }
+  }, [isLoading, entered]);
 
   useEffect(() => {
     let frameId;
@@ -192,31 +227,51 @@ export default function App() {
     }
   }
 
-  // Component to generate animated bubbles
-  const Bubbles = () => {
-    const bubbles = Array.from({ length: 30 }, (_, i) => ({
-      left: `${Math.random() * 100}%`,
-      bottom: `${Math.random() * 100}%`,
-      size: `${20 + Math.random() * 50}px`, // 20px to 70px
-      duration: `${10 + Math.random() * 20}s`, // 10s to 30s
-      delay: `${Math.random() * 5}s`, // 0s to 5s
-      sway: `${5 + Math.random() * 10}px`, // 5px to 15px
-    }));
-
+  // Optimized bubbles that don't reset
+  const OptimizedBubbles = () => {
+    // Create and cache bubbles only once
+    const [bubbles] = useState(() => {
+      const bubbleCount = 20;
+      const generatedBubbles = [];
+      
+      for (let i = 0; i < bubbleCount; i++) {
+        const size = 20 + Math.random() * 70;
+        const duration = 15 + Math.random() * 20;
+        const delay = Math.random() * 8;
+        const swayX = 30 + Math.random() * 60;
+        const maxOpacity = 0.3 + Math.random() * 0.3;
+        
+        generatedBubbles.push({
+          key: i,
+          left: `${Math.random() * 100}%`,
+          bottom: `${Math.random() * 40}%`,
+          width: `${size}px`,
+          height: `${size}px`,
+          animationDuration: `${duration}s`,
+          swayX: `${swayX}px`,
+          maxOpacity,
+          animationDelay: `${delay}s`,
+        });
+      }
+      
+      return generatedBubbles;
+    });
+    
     return (
       <>
-        {bubbles.map((bubble, index) => (
+        {bubbles.map(bubble => (
           <div
-            key={index}
+            key={bubble.key}
             className="bubble"
             style={{
               left: bubble.left,
               bottom: bubble.bottom,
-              width: bubble.size,
-              height: bubble.size,
-              animationDuration: bubble.duration,
-              animationDelay: bubble.delay,
-              '--sway': bubble.sway,
+              width: bubble.width,
+              height: bubble.height,
+              '--animation-duration': bubble.animationDuration,
+              '--sway-x': bubble.swayX,
+              '--max-opacity': bubble.maxOpacity,
+              animationDelay: bubble.animationDelay,
             }}
           />
         ))}
@@ -224,28 +279,59 @@ export default function App() {
     );
   };
 
+  // Loading screen component
+  const LoadingScreen = () => (
+    <div className="loading-screen">
+      <div className="loading-bar-container">
+        <div 
+          className="loading-bar" 
+          style={{ width: `${loadingProgress}%` }}
+        />
+      </div>
+      <div className="loading-text">Loading Experience... {Math.floor(loadingProgress)}%</div>
+    </div>
+  );
+
   if (!entered) {
     return (
       <div className="landing">
-        <Bubbles />
-        <h1 className="title">
-          {'Bubbled'.split('').map((char, index) => (
-            <span key={index} style={{ animationDelay: `${index * 0.1}s` }}>
-              {char}
-            </span>
-          ))}
-        </h1>
-        <p className="description">
-          Welcome to a dynamic 3D audio-visual experience. Press keys to create sounds and visual elements,
-          record sequences, and watch as the environment responds to your music.
-        </p>
-        <button className="enter-button" onClick={handleEnterClick}>
-          Enter Experience
-        </button>
+        {isLoading ? (
+          <LoadingScreen />
+        ) : (
+          <>
+            {/* Static glowing background elements */}
+            <div className="glow-container">
+              <div className="glow"></div>
+              <div className="glow"></div>
+              <div className="glow"></div>
+            </div>
+            
+            {/* Optimized bubbles that don't reset */}
+            <OptimizedBubbles />
+            
+            {/* Enhanced artistic title that won't reset */}
+            <EnhancedBubblesTitle />
+            
+            {/* Enhanced description */}
+            <p className="description">
+              Welcome to a dynamic 3D audio-visual experience. Press keys to create sounds and visual elements,
+              record sequences, and watch as the environment responds to your music.
+            </p>
+            
+            {/* Enhanced enter button */}
+            <div className="enter-button-container">
+              <button 
+                className="enter-button" 
+                onClick={handleEnterClick}
+              >
+                Begin Journey
+              </button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
-
 
   const controlsStyle = {
     position: 'absolute',
@@ -380,7 +466,6 @@ export default function App() {
     transition: 'all 0.2s ease'
   });
 
- 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
       <Canvas 
@@ -642,7 +727,7 @@ export default function App() {
             <li style={{ margin: '0.3rem 0' }}>Keys A-S-D-F: Additional sound options</li>
             <li style={{ margin: '0.3rem 0' }}>Press C: Toggle camera modes</li>
           </ul>
-          
+
           <h3 style={{ borderBottom: '1px solid rgba(80, 120, 220, 0.3)', paddingBottom: '0.5rem', marginTop: '1rem' }}>
             Tips:
           </h3>

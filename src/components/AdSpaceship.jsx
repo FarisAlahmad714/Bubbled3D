@@ -11,6 +11,10 @@ const AdSpaceship = forwardRef(function AdSpaceship({ modelPath, bannerUrl, spee
   const bannerRef = useRef();
   const pathRef = useRef();
   const modelRef = useRef(null);
+  
+  // Create refs for our dedicated following lights
+  const followLightRef = useRef();
+  const followLightTargetRef = useRef();
 
   useEffect(() => {
     // Load the 3D model with materials
@@ -60,22 +64,41 @@ const AdSpaceship = forwardRef(function AdSpaceship({ modelPath, bannerUrl, spee
     const endPoint = new THREE.Vector3(40, 0, -40).add(new THREE.Vector3(...positionOffset));
     pathRef.current = new THREE.CatmullRomCurve3([startPoint, endPoint]);
     
-    // Add a light to illuminate the spacecraft
-    const spacecraftLight = new THREE.PointLight(0xffffff, 2, 20);
-    spacecraftLight.position.set(0, 2, 0);
-    spaceshipRef.current.add(spacecraftLight);
+    // STANDARD LIGHTING
     
-    // Add a spotlight to illuminate the model better
-    const spotLight = new THREE.SpotLight(0xffffff, 1.5);
-    spotLight.position.set(5, 5, 5);
-    spotLight.angle = Math.PI / 6;
-    spotLight.penumbra = 0.2;
-    spotLight.distance = 30;
-    spotLight.target = spaceshipRef.current;
-    spaceshipRef.current.add(spotLight);
+    // Ambient light - very subtle global fill
+    const ambientLight = new THREE.AmbientLight(0x404060, 0.3);
+    spaceshipRef.current.add(ambientLight);
+    
+    // DEDICATED FOLLOWING LIGHT SETUP
+    
+    // Create a target object for the spotlight to follow
+    const lightTarget = new THREE.Object3D();
+    lightTarget.position.set(0, 0, 5); // Slightly in front of the model
+    spaceshipRef.current.add(lightTarget);
+    followLightTargetRef.current = lightTarget;
+    
+    // Main following spotlight - This will move with the spacecraft
+    const followSpotlight = new THREE.SpotLight(0xffffff, 2.5, 40, Math.PI/6, 0.5, 2);
+    followSpotlight.position.set(5, 8, -3); // Position relative to the model
+    followSpotlight.target = lightTarget;
+    spaceshipRef.current.add(followSpotlight);
+    followLightRef.current = followSpotlight;
+    
+    // Secondary fill light - also follows the model
+    const followFillLight = new THREE.PointLight(0xeeeeff, 1.2, 20);
+    followFillLight.position.set(-4, 3, 0); // Left side of model
+    spaceshipRef.current.add(followFillLight);
+    
+    // Rim light - creates definition along edges (from behind)
+    const followRimLight = new THREE.SpotLight(0xffffee, 1.5, 15, Math.PI/4, 0.4, 2);
+    followRimLight.position.set(0, 4, -8); // Behind model
+    followRimLight.target = lightTarget;
+    spaceshipRef.current.add(followRimLight);
+    
   }, [modelPath, bannerUrl, positionOffset]);
 
-  // Frame update handler
+  // Frame update handler - WITH ADDED LIGHT CONTROL
   useFrame(({ clock, camera }) => {
     if (!spaceshipRef.current || !pathRef.current) return;
 
@@ -100,13 +123,24 @@ const AdSpaceship = forwardRef(function AdSpaceship({ modelPath, bannerUrl, spee
       if (bannerRef.current) {
         bannerRef.current.lookAt(camera.position);
       }
+      
+      // Adjust the following light to ensure optimal illumination
+      // as the craft moves and rotates
+      if (followLightRef.current) {
+        // We might adjust intensity based on distance to camera or other factors
+        const distanceToCamera = position.distanceTo(camera.position);
+        const normalizedDistance = Math.min(Math.max(distanceToCamera / 50, 0.5), 1.5);
+        
+        // Adjust light intensity based on distance
+        followLightRef.current.intensity = 2.5 * normalizedDistance;
+      }
     } else {
       // Move the spacecraft out of view when not visible
       spaceshipRef.current.position.set(0, 0, -1000);
     }
   });
 
-  // Expose position via ref
+  // Expose position via ref - UNTOUCHED
   useImperativeHandle(ref, () => ({
     getPosition: () => spaceshipRef.current ? spaceshipRef.current.position : new THREE.Vector3(0, 0, -1000),
   }));
