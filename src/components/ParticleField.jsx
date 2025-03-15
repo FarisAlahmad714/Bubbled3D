@@ -12,6 +12,7 @@ export default function ParticleField({ soundIntensity = 0, performanceSettings 
   const particles = useRef();
   const texture = useParticleTexture();
   const [smoothedIntensity, setSmoothedIntensity] = useState(0); // For smoothing soundIntensity
+  const isComponentMounted = useRef(true);
 
   // Performance and complexity settings
   const settings = useMemo(() => ({
@@ -189,6 +190,13 @@ export default function ParticleField({ soundIntensity = 0, performanceSettings 
     targetSkipFrames: settings.skipFrames
   });
 
+  // Add this effect to track component mounting state
+  useEffect(() => {
+    return () => {
+      isComponentMounted.current = false;
+    };
+  }, []);
+
   // Smooth soundIntensity changes
   useEffect(() => {
     const lerpFactor = 0.1; // Smoothing factor (0 to 1)
@@ -198,7 +206,7 @@ export default function ParticleField({ soundIntensity = 0, performanceSettings 
 
   // Animation loop with adaptive frame skipping
   useFrame(({ clock }) => {
-    if (!particles.current) return;
+    if (!particles.current || !isComponentMounted.current) return;
 
     const time = clock.getElapsedTime();
     const deltaTime = time - animSettings.current.lastUpdateTime;

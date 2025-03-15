@@ -428,7 +428,7 @@ export default function App() {
     justifyContent: 'center',
     cursor: 'pointer',
     fontSize: '1.2rem',
-    zIndex: 11,
+    zIndex: '11',
     boxShadow: '0 0 10px rgba(100, 150, 255, 0.5)'
   };
 
@@ -503,30 +503,7 @@ export default function App() {
 
       <div style={controlsStyle}>
         <div style={buttonGroupStyle}>
-          <button 
-            onClick={() => sceneRef.current?.startLoop()}
-            style={buttonStyle}
-            onMouseOver={(e) => e.target.style.background = 'rgba(50, 70, 120, 0.8)'}
-            onMouseOut={(e) => e.target.style.background = 'rgba(40, 50, 80, 0.8)'}
-          >
-            Start Loop
-          </button>
-          <button 
-            onClick={() => sceneRef.current?.stopLoop()} 
-            style={buttonStyle}
-            onMouseOver={(e) => e.target.style.background = 'rgba(50, 70, 120, 0.8)'}
-            onMouseOut={(e) => e.target.style.background = 'rgba(40, 50, 80, 0.8)'}
-          >
-            Stop Loop
-          </button>
-          <button 
-            onClick={() => sceneRef.current?.deleteLoop()} 
-            style={buttonStyle}
-            onMouseOver={(e) => e.target.style.background = 'rgba(50, 70, 120, 0.8)'}
-            onMouseOut={(e) => e.target.style.background = 'rgba(40, 50, 80, 0.8)'}
-          >
-            Clear Loop
-          </button>
+          
         </div>
         
         <div style={{

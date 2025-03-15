@@ -9,7 +9,7 @@ export default function AdManager({ performanceSettings, onSpacecraftVisible, on
   const [ads, setAds] = useState([
     {
       id: 1,
-      modelPath: '/models/craft1.obj',
+      modelPath: '/models/creft1.obj',
       bannerUrl: '/ads/ad1.png',
       speedFactor: 1.0,
       animationType: 'none',

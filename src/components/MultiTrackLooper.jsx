@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useRef,
-  forwardRef,
-  useImperativeHandle,
-  useEffect
-} from 'react';
+import React, { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import * as Tone from 'tone';
 import { Howl } from 'howler';
@@ -15,11 +9,12 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   const [minimized, setMinimized] = useState(false);
   const [bpm, setBpm] = useState(120);
   const [audioInitialized, setAudioInitialized] = useState(false);
-  const [masterVolume, setMasterVolume] = useState(0); // 0 dB = normal volume
-  const [viewMode, setViewMode] = useState('timeline'); // 'timeline' or 'player'
+  const [masterVolume, setMasterVolume] = useState(0);
+  const [viewMode, setViewMode] = useState('timeline');
   const [selectedTrack, setSelectedTrack] = useState(null);
-  
-  // Refs for audio-related objects to avoid re-renders
+  const [quantize, setQuantize] = useState(false);
+
+  const keyData = sceneRef.current?.getKeyData() || {};
   const players = useRef({});
   const tracksRef = useRef([]);
   const patterns = useRef({});
@@ -27,61 +22,32 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   const mainBus = useRef(null);
   const trackBuses = useRef({});
   const playbackPositions = useRef({});
-  
-  // Flags and tracking
   const useFallbackAudio = useRef(false);
   const playingSounds = useRef(new Set());
-  const patternInProgress = useRef(new Set()); // Track patterns that are already playing to prevent duplicates
+  const patternInProgress = useRef(new Set());
 
-  // Sync tracksRef with tracks state
   useEffect(() => {
     tracksRef.current = tracks;
   }, [tracks]);
 
-  // Update track order if needed
   useEffect(() => {
     if (tracks.length > 0 && trackOrder.length === 0) {
       setTrackOrder(tracks.map(t => t.id));
     }
   }, [tracks, trackOrder]);
 
-  // Sound mappings
-  const keyData = {
-    '1': { src: '/Sounds/confetti.mp3' },
-    '2': { src: '/Sounds/clay.mp3' },
-    '3': { src: '/Sounds/corona.mp3' },
-    '4': { src: '/Sounds/loop.mp3' },
-    '5': { src: '/Sounds/glimmer.mp3' },
-    '6': { src: '/Sounds/moon.mp3' },
-    'q': { src: '/Sounds/flash-1.mp3' },
-    'w': { src: '/Sounds/pinwheel.mp3' },
-    'e': { src: '/Sounds/piston-1.mp3' },
-    'r': { src: '/Sounds/piston-2.mp3' },
-    't': { src: '/Sounds/piston-3.mp3' },
-    'a': { src: '/Sounds/prism-1.mp3' },
-    's': { src: '/Sounds/prism-2.mp3' },
-    'd': { src: '/Sounds/prism-3.mp3' },
-    'f': { src: '/Sounds/splits.mp3' },
-    // Add longer tunes
-    'z': { src: '/Sounds/long-tune-1.mp3', duration: 8000 },
-    'x': { src: '/Sounds/long-tune-2.mp3', duration: 12000 },
-    'c': { src: '/Sounds/long-tune-3.mp3', duration: 16000 },
-  };
 
-  // Initialize audio on mount
   useEffect(() => {
     initializeAudio();
     return cleanup;
   }, []);
 
-  // Update master volume
   useEffect(() => {
     if (audioInitialized && mainBus.current) {
       mainBus.current.volume.value = masterVolume;
     }
   }, [masterVolume, audioInitialized]);
 
-  // Update BPM
   useEffect(() => {
     if (audioInitialized) {
       Tone.Transport.bpm.value = bpm;
@@ -89,156 +55,268 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     }
   }, [bpm, audioInitialized]);
 
-  // Update tracks when track order changes
   useEffect(() => {
     if (trackOrder.length > 0 && tracks.length > 0) {
-      // Reorder tracks based on trackOrder
       const orderedTracks = [...tracks].sort((a, b) => {
         return trackOrder.indexOf(a.id) - trackOrder.indexOf(b.id);
       });
-      
       if (JSON.stringify(orderedTracks.map(t => t.id)) !== JSON.stringify(tracks.map(t => t.id))) {
         setTracks(orderedTracks);
       }
     }
   }, [trackOrder]);
 
-  // Update playback positions for visual tracking
   useEffect(() => {
     let frameId;
-    
     const updatePlaybackPositions = () => {
       if (audioInitialized && Tone.Transport.state === 'started') {
         const transportPosition = Tone.Transport.seconds;
-        
         tracks.forEach(track => {
           if (track.isLooping && track.events.length > 0) {
-            const loopEndMarker = track.events.find(ev => ev.isMarker && ev.key === 'loop-end');
-            const loopDuration = loopEndMarker ? loopEndMarker.offset / 1000 : track.totalDuration / 1000;
-            
+            const loopDuration = track.totalDuration / 1000;
             if (loopDuration > 0) {
-              // Calculate position within the loop (0 to 1)
               const position = (transportPosition % loopDuration) / loopDuration;
               playbackPositions.current[track.id] = position;
             }
           }
         });
-        
-        // Request next frame
         frameId = requestAnimationFrame(updatePlaybackPositions);
       }
     };
-    
     if (tracks.some(t => t.isLooping)) {
       frameId = requestAnimationFrame(updatePlaybackPositions);
     }
-    
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
     };
   }, [tracks, audioInitialized]);
 
-  // Audio initialization
   async function initializeAudio() {
     try {
+      console.log("Starting audio initialization...");
       await Tone.start();
       audioContext.current = Tone.getContext();
       Tone.Transport.bpm.value = bpm;
-
-      // Set up main output bus
-      mainBus.current = new Tone.Channel({
-        volume: masterVolume,
-      }).toDestination();
-
+      mainBus.current = new Tone.Channel({ volume: masterVolume }).toDestination();
+      
+      console.log("Tone context state:", Tone.context.state);
+      console.log("AudioContext state:", audioContext.current.state);
+  
       try {
         const testPlayer = new Tone.Player().toDestination();
         testPlayer.dispose();
       } catch (err) {
-        console.log('Tone.js issues detected, using fallback');
+        console.log('Tone.js issues detected, using fallback:', err);
         useFallbackAudio.current = true;
       }
-
+  
+      const keyData = sceneRef.current?.getKeyData() || {};
+      console.log(`Loading ${Object.keys(keyData).length} sound sources`);
+      
       if (useFallbackAudio.current) {
         Object.keys(keyData).forEach((key) => {
           const soundSource = Array.isArray(keyData[key].src) ? keyData[key].src[0] : keyData[key].src;
-          new Howl({ src: [soundSource], preload: true, autoplay: false });
+          console.log(`Setting up Howl for ${key}: ${soundSource}`);
+          new Howl({ 
+            src: [soundSource], 
+            preload: true, 
+            autoplay: false,
+            onloaderror: (id, err) => console.error(`Howl load error for ${key}: ${soundSource}`, err),
+            onplayerror: (id, err) => console.error(`Howl play error for ${key}: ${soundSource}`, err)
+          });
         });
       } else {
         Object.keys(keyData).forEach((key) => {
           if (!players.current[key]) {
             const soundSource = Array.isArray(keyData[key].src) ? keyData[key].src[0] : keyData[key].src;
+            console.log(`Setting up Tone.Player for ${key}: ${soundSource}`);
             players.current[key] = new Tone.Player({
               url: soundSource,
               onload: () => {
                 console.log(`Player loaded for ${key}: ${soundSource}`);
                 players.current[key].loaded = true;
               },
+              onerror: (err) => {
+                console.error(`Error loading ${key}: ${soundSource}`, err);
+              },
               fadeOut: 0.01,
               volume: 0,
               autostart: false
-            }).connect(mainBus.current); // Connect to main bus instead of destination
+            }).connect(mainBus.current);
           }
         });
       }
-
+  
       setAudioInitialized(true);
       console.log('Audio initialized. Context state:', Tone.context.state);
     } catch (err) {
       console.error('Error initializing audio:', err);
+      console.error('Stack trace:', err.stack);
       useFallbackAudio.current = true;
+      // Try to continue with fallback mode
+      try {
+        if (!audioContext.current) {
+          audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        const keyData = sceneRef.current?.getKeyData() || {};
+        Object.keys(keyData).forEach((key) => {
+          const soundSource = Array.isArray(keyData[key].src) ? keyData[key].src[0] : keyData[key].src;
+          console.log(`Setting up fallback Howl for ${key}: ${soundSource}`);
+          new Howl({ 
+            src: [soundSource], 
+            preload: true, 
+            autoplay: false,
+            onloaderror: (id, err) => console.error(`Fallback Howl load error for ${key}: ${soundSource}`, err),
+            onplayerror: (id, err) => console.error(`Fallback Howl play error for ${key}: ${soundSource}`, err)
+          });
+        });
+        setAudioInitialized(true);
+      } catch (fallbackErr) {
+        console.error('Fallback audio initialization also failed:', fallbackErr);
+      }
     }
   }
 
-  // Cleanup on unmount
+  async function forceResumeAudio() {
+    console.log("Attempting to force resume audio contexts...");
+    
+    // Resume Tone.js context
+    if (Tone && Tone.context) {
+      if (Tone.context.state !== "running") {
+        try {
+          console.log("Resuming Tone.js context. Current state:", Tone.context.state);
+          await Tone.context.resume();
+          console.log("Tone.js context resumed. New state:", Tone.context.state);
+        } catch (err) {
+          console.error("Failed to resume Tone.js context:", err);
+        }
+      } else {
+        console.log("Tone.js context already running");
+      }
+    }
+    
+    // Check if the main AudioContext is running
+    if (audioContext.current && audioContext.current.state !== "running") {
+      try {
+        console.log("Resuming main AudioContext. Current state:", audioContext.current.state);
+        await audioContext.current.resume();
+        console.log("Main AudioContext resumed. New state:", audioContext.current.state);
+      } catch (err) {
+        console.error("Failed to resume main AudioContext:", err);
+      }
+    }
+    
+    // For Howler.js (it uses its own AudioContext internally)
+    if (window.Howler && window.Howler.ctx) {
+      if (window.Howler.ctx.state !== "running") {
+        try {
+          console.log("Resuming Howler.js context. Current state:", window.Howler.ctx.state);
+          await window.Howler.ctx.resume();
+          console.log("Howler.js context resumed. New state:", window.Howler.ctx.state);
+        } catch (err) {
+          console.error("Failed to resume Howler.js context:", err);
+        }
+      } else {
+        console.log("Howler.js context already running");
+      }
+    }
+    
+    // Verify file accessibility
+    if (sceneRef && sceneRef.current) {
+      const keyData = sceneRef.current.getKeyData() || {};
+      const sampleKey = Object.keys(keyData)[0];
+      if (sampleKey && keyData[sampleKey]) {
+        const sampleSrc = Array.isArray(keyData[sampleKey].src) 
+          ? keyData[sampleKey].src[0] 
+          : keyData[sampleKey].src;
+        
+        try {
+          console.log(`Testing file accessibility for ${sampleSrc}`);
+          const response = await fetch(sampleSrc, { method: 'HEAD' });
+          if (response.ok) {
+            console.log(`File ${sampleSrc} is accessible`);
+          } else {
+            console.error(`File ${sampleSrc} returned status ${response.status}`);
+          }
+        } catch (err) {
+          console.error(`Cannot access file ${sampleSrc}:`, err);
+        }
+      }
+    }
+    
+    // Reset audio initialization state to force reinitialize
+    setAudioInitialized(false);
+    useFallbackAudio.current = false;
+    await initializeAudio();
+    
+    return "Audio context force resumed and re-initialized";
+  }
+
+  function testAudio() {
+    console.log("Running audio test...");
+    ensureAudioInitialized().then(ready => {
+      if (!ready) {
+        console.error("Audio initialization failed");
+        return;
+      }
+      
+      // Test playback with both libraries
+      const keyData = sceneRef.current?.getKeyData() || {};
+      const keys = Object.keys(keyData);
+      if (keys.length === 0) {
+        console.error("No sound data available");
+        return;
+      }
+      
+      const testKey = keys[0];
+      console.log(`Testing playback for key: ${testKey}`);
+      
+      // Test with Tone.js
+      if (!useFallbackAudio.current) {
+        try {
+          const player = new Tone.Player({
+            url: keyData[testKey].src,
+            autostart: true,
+            onload: () => console.log("Tone test player loaded"),
+            onerror: (err) => console.error("Tone test player error:", err)
+          }).toDestination();
+          
+          setTimeout(() => {
+            player.dispose();
+          }, 2000);
+        } catch (err) {
+          console.error("Tone.js test playback failed:", err);
+        }
+      }
+      
+      // Test with Howler
+      try {
+        const howl = new Howl({
+          src: [keyData[testKey].src],
+          autoplay: true,
+          volume: 0.5,
+          onload: () => console.log("Howl test loaded successfully"),
+          onloaderror: (id, err) => console.error("Howl test load error:", err),
+          onplay: () => console.log("Howl test playing"),
+          onplayerror: (id, err) => console.error("Howl test play error:", err)
+        });
+      } catch (err) {
+        console.error("Howler test playback failed:", err);
+      }
+    });
+  }
+
   function cleanup() {
     console.log('Cleaning up audio resources...');
     cleanupAllTracks();
     Tone.Transport.stop();
     Tone.Transport.cancel(0);
-    
-    // Clean up patterns
-    Object.values(patterns.current).forEach(pattern => {
-      if (pattern && typeof pattern.dispose === 'function') {
-        try {
-          pattern.dispose();
-        } catch (err) {
-          console.error('Error disposing pattern:', err);
-        }
-      }
-    });
+    Object.values(patterns.current).forEach(pattern => pattern.dispose && pattern.dispose());
     patterns.current = {};
-    
-    // Clean up track buses
-    Object.values(trackBuses.current).forEach(bus => {
-      if (bus && typeof bus.dispose === 'function') {
-        try {
-          bus.dispose();
-        } catch (err) {
-          console.error('Error disposing track bus:', err);
-        }
-      }
-    });
+    Object.values(trackBuses.current).forEach(bus => bus.dispose && bus.dispose());
     trackBuses.current = {};
-    
-    // Clean up main bus
-    if (mainBus.current && typeof mainBus.current.dispose === 'function') {
-      try {
-        mainBus.current.dispose();
-      } catch (err) {
-        console.error('Error disposing main bus:', err);
-      }
-    }
-    
-    // Clean up players
-    Object.values(players.current).forEach(player => {
-      if (player && typeof player.dispose === 'function') {
-        try {
-          player.dispose();
-        } catch (err) {
-          console.error('Error disposing player:', err);
-        }
-      }
-    });
+    mainBus.current?.dispose && mainBus.current.dispose();
+    Object.values(players.current).forEach(player => player.dispose && player.dispose());
     players.current = {};
     playingSounds.current.clear();
     patternInProgress.current.clear();
@@ -258,6 +336,7 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
         patterns.current[track.id].dispose();
         delete patterns.current[track.id];
         patternInProgress.current.delete(track.id);
+        console.log(`Cleared pattern for track ${track.id}`);
       } catch (err) {
         console.error(`Error clearing pattern for track ${track.id}:`, err);
       }
@@ -265,13 +344,23 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     if (track.loopId) {
       try {
         Tone.Transport.clear(track.loopId);
+        console.log(`Cleared transport schedule for track ${track.id}`);
       } catch (err) {
         console.error(`Error clearing transport schedule for track ${track.id}:`, err);
       }
     }
+    if (track.activeHowls && track.activeHowls.size > 0) {
+      track.activeHowls.forEach(howl => {
+        howl.stop();
+        howl.unload();
+      });
+      track.activeHowls.clear();
+      console.log(`Cleared Howls for track ${track.id}`);
+    }
     if (sceneRef && sceneRef.current) {
       try {
         sceneRef.current.clearSoundsForTrack(track.id);
+        console.log(`Cleared scene sounds for track ${track.id}`);
       } catch (err) {
         console.error(`Error clearing scene for track ${track.id}:`, err);
       }
@@ -294,56 +383,66 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
       activeHowls: new Set(),
       muted: false,
       soloed: false,
-      // Add position property for layering
-      position: tracks.length // Each new track goes on top
+      totalDuration: 0,
     };
-    
-    // Create a bus for this track
     if (!useFallbackAudio.current) {
-      trackBuses.current[newTrackId] = new Tone.Channel({
-        volume: 0,
-        pan: 0
-      }).connect(mainBus.current);
+      trackBuses.current[newTrackId] = new Tone.Channel({ volume: 0, pan: 0 }).connect(mainBus.current);
     }
-    
     setTracks(prev => [...prev, newTrack]);
     setTrackOrder(prev => [...prev, newTrackId]);
+    console.log(`Added new track ${newTrackId}`);
     return newTrackId;
   }
 
   function removeTrack(trackId) {
     const trackToRemove = tracks.find(t => t.id === trackId);
     if (trackToRemove) {
+      console.log(`Removing track ${trackId}`);
       if (trackToRemove.isLooping && trackToRemove.loopId) clearTrackLoop(trackToRemove);
       
-      // Clean up track bus
       if (trackBuses.current[trackId]) {
         try {
+          trackBuses.current[trackId].mute = true;
           trackBuses.current[trackId].dispose();
           delete trackBuses.current[trackId];
+          console.log(`Disposed track bus for ${trackId}`);
         } catch (err) {
           console.error(`Error disposing bus for track ${trackId}:`, err);
         }
       }
-      
+
+      if (patterns.current[trackId]) {
+        try {
+          patterns.current[trackId].stop();
+          patterns.current[trackId].dispose();
+          delete patterns.current[trackId];
+          console.log(`Forcefully cleared pattern for ${trackId}`);
+        } catch (err) {
+          console.error(`Error forcefully clearing pattern for ${trackId}:`, err);
+        }
+      }
+      patternInProgress.current.delete(trackId);
+
       setTracks(prev => {
         const newTracks = prev.filter(t => t.id !== trackId);
         if (!newTracks.some(t => t.isLooping) && Tone.Transport.state === 'started') {
           Tone.Transport.stop();
+          console.log('Stopped Transport as no tracks are looping');
         }
+        console.log(`Remaining tracks: ${newTracks.map(t => t.id).join(', ')}`);
         return newTracks;
       });
       
-      // Update track order
-      setTrackOrder(prev => prev.filter(id => id !== trackId));
+      setTrackOrder(prev => {
+        const newOrder = prev.filter(id => id !== trackId);
+        console.log(`Updated track order: ${newOrder.join(', ')}`);
+        return newOrder;
+      });
       
-      // Clear selected track if it's the one being removed
-      if (selectedTrack === trackId) {
-        setSelectedTrack(null);
-      }
+      if (selectedTrack === trackId) setSelectedTrack(null);
     }
   }
-  
+
   function moveTrackUp(trackId) {
     setTrackOrder(prev => {
       const index = prev.indexOf(trackId);
@@ -372,56 +471,33 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     setTracks(prev => prev.map(track => 
       track.id === trackId ? { ...track, isCollapsed: !track.isCollapsed } : track
     ));
+    console.log(`Toggled collapse for track ${trackId}`);
   }
-  
+
   function toggleMute(trackId) {
-    setTracks(prev => {
-      return prev.map(track => {
-        if (track.id === trackId) {
-          const newMutedState = !track.muted;
-          
-          // Update the track bus if available
-          if (trackBuses.current[trackId]) {
-            trackBuses.current[trackId].mute = newMutedState;
-          }
-          
-          return { ...track, muted: newMutedState };
-        }
-        return track;
-      });
-    });
+    setTracks(prev => prev.map(track => {
+      if (track.id === trackId) {
+        const newMutedState = !track.muted;
+        if (trackBuses.current[trackId]) trackBuses.current[trackId].mute = newMutedState;
+        return { ...track, muted: newMutedState };
+      }
+      return track;
+    }));
   }
-  
+
   function toggleSolo(trackId) {
     setTracks(prev => {
-      // First check if we're toggling solo on or off
       const targetTrack = prev.find(t => t.id === trackId);
       const newSoloState = !targetTrack.soloed;
-      
-      // Update all tracks based on solo state
-      const updatedTracks = prev.map(track => {
-        if (track.id === trackId) {
-          return { ...track, soloed: newSoloState };
-        }
-        return track;
-      });
-      
-      // Check if any track is soloed
+      const updatedTracks = prev.map(track => 
+        track.id === trackId ? { ...track, soloed: newSoloState } : track
+      );
       const anySoloed = updatedTracks.some(t => t.soloed);
-      
-      // Update the buses based on solo state
       updatedTracks.forEach(track => {
         if (trackBuses.current[track.id]) {
-          if (anySoloed) {
-            // If any track is soloed, only soloed tracks are heard
-            trackBuses.current[track.id].mute = !track.soloed;
-          } else {
-            // If no tracks are soloed, return to regular mute states
-            trackBuses.current[track.id].mute = track.muted;
-          }
+          trackBuses.current[track.id].mute = anySoloed ? !track.soloed : track.muted;
         }
       });
-      
       return updatedTracks;
     });
   }
@@ -429,23 +505,17 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   function updateTrackVolume(trackId, volume) {
     setTracks(prev => prev.map(track => {
       if (track.id === trackId) {
-        // Update track bus if available
-        if (trackBuses.current[trackId]) {
-          trackBuses.current[trackId].volume.value = volume;
-        }
+        if (trackBuses.current[trackId]) trackBuses.current[trackId].volume.value = volume;
         return { ...track, volume };
       }
       return track;
     }));
   }
-  
+
   function updateTrackPan(trackId, pan) {
     setTracks(prev => prev.map(track => {
       if (track.id === trackId) {
-        // Update track bus if available
-        if (trackBuses.current[trackId]) {
-          trackBuses.current[trackId].pan.value = pan;
-        }
+        if (trackBuses.current[trackId]) trackBuses.current[trackId].pan.value = pan;
         return { ...track, pan };
       }
       return track;
@@ -459,32 +529,70 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   }
 
   async function ensureAudioInitialized() {
-    if (!audioInitialized || Tone.context.state !== 'running') {
-      try {
-        await Tone.start();
-        if (!audioInitialized) await initializeAudio();
+    console.log("Ensuring audio is initialized...");
+    try {
+      if (!audioInitialized || 
+          (Tone.context && Tone.context.state !== 'running') || 
+          (audioContext.current && audioContext.current.state !== 'running')) {
+        
+        console.log("Audio needs initialization or resuming");
+        console.log("Tone context state:", Tone.context ? Tone.context.state : "N/A");
+        console.log("AudioContext state:", audioContext.current ? audioContext.current.state : "N/A");
+        
+        try {
+          await Tone.start();
+          console.log("Tone started successfully");
+        } catch (toneErr) {
+          console.error("Error starting Tone:", toneErr);
+        }
+        
+        if (Tone.context && Tone.context.state !== 'running') {
+          try {
+            console.log("Attempting to resume Tone context");
+            await Tone.context.resume();
+            console.log("Tone context resumed, state:", Tone.context.state);
+          } catch (resumeErr) {
+            console.error("Error resuming Tone context:", resumeErr);
+          }
+        }
+        
+        if (audioContext.current && audioContext.current.state !== 'running') {
+          try {
+            console.log("Attempting to resume AudioContext");
+            await audioContext.current.resume();
+            console.log("AudioContext resumed, state:", audioContext.current.state);
+          } catch (resumeErr) {
+            console.error("Error resuming AudioContext:", resumeErr);
+          }
+        }
+        
+        if (!audioInitialized) {
+          console.log("Initializing audio from scratch");
+          await initializeAudio();
+        }
+        
+        console.log("Audio initialization complete");
         return true;
-      } catch (err) {
-        console.error('Error starting audio:', err);
-        return false;
       }
+      return true;
+    } catch (err) {
+      console.error("Error in ensureAudioInitialized:", err);
+      return false;
     }
-    return true;
   }
 
   function startRecording(trackId) {
     ensureAudioInitialized().then(ready => {
       if (!ready) return;
-      const measureDurationMs = 4 * (60000 / bpm);
       setTracks(prev => prev.map(track => 
         track.id === trackId ? {
           ...track,
           events: [],
           isRecording: true,
           recordStartTime: performance.now(),
-          recordingMaxTime: performance.now() + (measureDurationMs * 16), // Allow for longer recordings
         } : track
       ));
+      console.log(`Started recording on track ${trackId}`);
     });
   }
 
@@ -497,168 +605,159 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
       if (events.length === 0) {
         return prev.map(t => t.id === trackId ? { ...t, isRecording: false } : t);
       }
-      const measureDurationMs = 4 * (60000 / bpm);
-      const lastEventTime = events.length > 0 ? Math.max(...events.map(e => e.offset)) : 0;
-      
-      // For longer recordings, ensure we round to a multiple of measures
-      const minDuration = Math.max(lastEventTime + 1000, measureDurationMs);
-      const measuresNeeded = Math.ceil(minDuration / measureDurationMs);
-      
-      // Ensure at least 4 measures for short recordings
-      const finalMeasures = Math.max(measuresNeeded, 4);
-      const roundedDuration = finalMeasures * measureDurationMs;
-      
-      const loopEndEvent = { key: 'loop-end', offset: roundedDuration, isMarker: true };
-      
+
+      const actualDuration = recordEndTime - track.recordStartTime;
+      let finalDuration = actualDuration;
+
+      if (quantize) {
+        const beatDurationMs = 60000 / bpm;
+        const beats = Math.ceil(actualDuration / beatDurationMs);
+        finalDuration = beats * beatDurationMs;
+      }
+
+      const loopEndEvent = { key: 'loop-end', offset: finalDuration, isMarker: true };
+
+      console.log(`Stopped recording on track ${trackId}. Duration: ${finalDuration}ms, Events: ${events.length}`);
       return prev.map(t => 
         t.id === trackId ? { 
           ...t, 
           isRecording: false, 
           recordEndTime, 
           events: [...events, loopEndEvent], 
-          totalDuration: roundedDuration 
+          totalDuration: finalDuration 
         } : t
       );
     });
   }
 
   function playSound(key, trackId, time, skipVisual = false) {
-    if (!keyData[key]) return false;
-    
-    // Get sound data
-    const soundSources = Array.isArray(keyData[key].src) ? keyData[key].src : [keyData[key].src];
-    const selectedSound = soundSources[Math.floor(Math.random() * soundSources.length)];
-    const soundEventId = time ? `${trackId}_${key}_${Math.floor(time * 1000)}` : `${trackId}_${key}_${Math.floor(performance.now())}`;
-    const duration = keyData[key].duration || 1000; // Default duration 1 second for short sounds
-
-    // Prevent duplicate playback
-    if (playingSounds.current.has(soundEventId)) return false;
-    playingSounds.current.add(soundEventId);
-    setTimeout(() => playingSounds.current.delete(soundEventId), duration);
-
-    // Get the track bus if available
-    const trackBus = trackBuses.current[trackId];
-    const track = tracks.find(t => t.id === trackId);
-    if (!track) return false;
-    
-    // Check mute/solo status
-    const isMuted = track.muted || false;
-    const anySoloed = tracks.some(t => t.soloed);
-    const isSoloed = track.soloed || false;
-    
-    // Check if track should be heard
-    const shouldBeSilent = isMuted || (anySoloed && !isSoloed);
-    if (shouldBeSilent && !time) {
-      // For immediate playback we respect mute/solo
-      // For scheduled playback, we'll let Tone.js handle this through bus muting
+    if (!keyData[key]) {
+      console.error(`No sound data found for key: ${key}`);
       return false;
     }
-
-    // Create visual feedback (if needed)
-    if (!skipVisual && sceneRef && sceneRef.current) {
-      if (time !== undefined) {
-        Tone.Draw.schedule(() => {
-          try {
-            sceneRef.current.createSphereAndPlaySound(key, trackId, false);
-          } catch (err) {
-            console.error('Error creating visual feedback:', err);
-          }
-        }, time);
-      } else {
-        try {
+    
+    try {
+      const soundSources = Array.isArray(keyData[key].src) ? keyData[key].src : [keyData[key].src];
+      const selectedSound = soundSources[Math.floor(Math.random() * soundSources.length)];
+      const soundEventId = time ? `${trackId}_${key}_${Math.floor(time * 1000)}` : `${trackId}_${key}_${Math.floor(performance.now())}`;
+      const duration = keyData[key].duration || 1000;
+  
+      if (playingSounds.current.has(soundEventId)) return false;
+      playingSounds.current.add(soundEventId);
+      setTimeout(() => playingSounds.current.delete(soundEventId), duration);
+  
+      const trackBus = trackBuses.current[trackId];
+      const track = tracks.find(t => t.id === trackId);
+      if (!track) {
+        console.warn(`No track found for ID ${trackId}, playing without track context`);
+        return playImmediateSound(key);
+      }
+  
+      const isMuted = track.muted;
+      const anySoloed = tracks.some(t => t.soloed);
+      const isSoloed = track.soloed;
+      const shouldBeSilent = isMuted || (anySoloed && !isSoloed);
+      if (shouldBeSilent && !time) return false;
+  
+      if (!skipVisual && sceneRef && sceneRef.current) {
+        if (time !== undefined) {
+          Tone.Draw.schedule(() => sceneRef.current.createSphereAndPlaySound(key, trackId, false), time);
+        } else {
           sceneRef.current.createSphereAndPlaySound(key, trackId, false);
-        } catch (err) {
-          console.error('Error creating visual feedback:', err);
         }
       }
-    }
-
-    if (useFallbackAudio.current) {
-      return playWithHowler();
-    } else if (time !== undefined) {
-      try {
+  
+      console.log(`Playing sound ${key} on track ${trackId}${time !== undefined ? ` at time ${time}` : ''}`);
+      
+      if (useFallbackAudio.current) {
+        return playWithHowler();
+      } else if (time !== undefined) {
         const player = players.current[key];
         if (player && player.loaded) {
-          // Create a temporary gain node to adjust volume for this specific sound
-          const tempGain = new Tone.Gain(1).connect(trackBus || mainBus.current);
-          player.connect(tempGain);
-          
-          player.start(time);
-          setTimeout(() => {
-            try {
+          try {
+            const tempGain = new Tone.Gain(1).connect(trackBus || mainBus.current);
+            player.connect(tempGain);
+            player.start(time);
+            setTimeout(() => {
               player.disconnect(tempGain);
               tempGain.dispose();
-            } catch (err) {
-              console.warn('Error cleaning up temporary connections:', err);
-            }
-          }, duration + 1000); // Clean up after the sound has played
-          
-          return true;
-        }
-        return playWithHowler();
-      } catch (err) {
-        console.warn(`Tone.js failed for ${key}, using Howler:`, err);
-        return playWithHowler();
-      }
-    } else {
-      try {
-        const volume = track.volume || 0;
-        const pan = track.pan || 0;
-        
-        const tempPlayer = new Tone.Player({
-          url: selectedSound,
-          volume: volume,
-          onload: () => {
-            if (trackBus) {
-              tempPlayer.connect(trackBus);
-            } else {
-              tempPlayer.connect(mainBus.current);
-            }
-            tempPlayer.start();
-            setTimeout(() => {
-              try {
-                tempPlayer.dispose();
-              } catch (err) {
-                console.warn('Error disposing temp player:', err);
-              }
             }, duration + 1000);
+            return true;
+          } catch (err) {
+            console.error(`Error playing Tone.Player for ${key}:`, err);
+            return playWithHowler();
           }
-        });
-        
-        return true;
-      } catch (err) {
-        console.warn(`Tone.js immediate play failed for ${key}, using Howler:`, err);
-        return playWithHowler();
-      }
-    }
-
-    function playWithHowler() {
-      try {
-        // Apply track volume and pan to howler
-        const volume = track ? (shouldBeSilent ? 0 : Math.pow(10, track.volume/20)) : 0.8;
-        const pan = track ? track.pan : 0;
-        
-        const howl = new Howl({ 
-          src: [selectedSound], 
-          autoplay: true, 
-          volume: volume,
-          stereo: pan
-        });
-        
-        if (trackId) {
-          setTracks(prev => prev.map(t => 
-            t.id === trackId ? { 
-              ...t, 
-              activeHowls: new Set([...(t.activeHowls || new Set()), howl]) 
-            } : t
-          ));
         }
-        
-        return true;
-      } catch (err) {
-        console.error(`Howler failed for ${key}:`, err);
-        return false;
+        console.warn(`Tone.Player not loaded for ${key}, falling back to Howler`);
+        return playWithHowler();
+      } else {
+        return playImmediateSound(key, track);
       }
+  
+      function playImmediateSound(key, trackContext) {
+        try {
+          const volume = trackContext ? trackContext.volume || 0 : 0;
+          const pan = trackContext ? trackContext.pan || 0 : 0;
+          const tempPlayer = new Tone.Player({
+            url: selectedSound,
+            volume,
+            onload: () => {
+              try {
+                if (trackBus) tempPlayer.connect(trackBus);
+                else tempPlayer.connect(mainBus.current);
+                tempPlayer.start();
+                setTimeout(() => tempPlayer.dispose(), duration + 1000);
+                console.log(`Successfully started Tone.Player for ${key}`);
+              } catch (playErr) {
+                console.error(`Error starting Tone.Player for ${key}:`, playErr);
+                playWithHowler(); // Fallback if starting fails
+              }
+            },
+            onerror: (err) => {
+              console.error(`Error loading Tone.Player for ${key}:`, err);
+              playWithHowler(); // Fallback if loading fails
+            }
+          });
+          return true;
+        } catch (err) {
+          console.error(`Error creating Tone.Player for ${key}:`, err);
+          return playWithHowler(); // Fallback if creation fails
+        }
+      }
+  
+      function playWithHowler() {
+        try {
+          const volume = track ? (shouldBeSilent ? 0 : Math.pow(10, track.volume / 20)) : 0.8;
+          const pan = track ? track.pan : 0;
+          console.log(`Creating Howl for ${key}, src: ${selectedSound}, volume: ${volume}, pan: ${pan}`);
+          
+          const howl = new Howl({ 
+            src: [selectedSound], 
+            autoplay: true, 
+            volume,
+            stereo: pan,
+            onloaderror: (id, err) => console.error(`Howl load error for ${key}:`, err),
+            onplayerror: (id, err) => console.error(`Howl play error for ${key}:`, err)
+          });
+          
+          howl.once('play', () => {
+            console.log(`Howl successfully playing for ${key}`);
+          });
+          
+          if (trackId) {
+            setTracks(prev => prev.map(t => 
+              t.id === trackId ? { ...t, activeHowls: new Set([...t.activeHowls, howl]) } : t
+            ));
+          }
+          return true;
+        } catch (err) {
+          console.error(`Error playing with Howler for ${key}:`, err);
+          return false;
+        }
+      }
+    } catch (err) {
+      console.error(`Unexpected error in playSound for ${key}:`, err);
+      return false;
     }
   }
 
@@ -667,24 +766,21 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     const playableEvents = events.filter(ev => !ev.isMarker);
     if (playableEvents.length === 0) return null;
 
-    // Check if pattern already exists to prevent duplicates
     if (patternInProgress.current.has(trackId)) {
-      console.log(`Pattern already exists for track ${trackId}`);
+      console.log(`Pattern already exists for track ${trackId}, reusing`);
       return patterns.current[trackId];
     }
 
     const pattern = new Tone.Part((time, event) => {
-      // Only play sound if not already playing
       playSound(event.key, trackId, time, false);
     }, playableEvents.map(ev => [ev.offset / 1000, { key: ev.key, offset: ev.offset }]));
     
     pattern.loop = true;
     const loopEndMarker = events.find(ev => ev.isMarker && ev.key === 'loop-end');
     pattern.loopEnd = (loopEndMarker ? loopEndMarker.offset : events[events.length - 1].offset) / 1000 + 0.05;
-    
-    // Register this pattern to prevent duplicates
     patternInProgress.current.add(trackId);
     
+    console.log(`Created pattern for track ${trackId} with ${playableEvents.length} events, loopEnd: ${pattern.loopEnd}s`);
     return pattern;
   }
 
@@ -692,7 +788,6 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     const ready = await ensureAudioInitialized();
     if (!ready) return;
     
-    // Stop if already looping
     if (patternInProgress.current.has(trackId)) {
       console.log(`Track ${trackId} is already looping`);
       return;
@@ -702,7 +797,7 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
       const track = prev.find(t => t.id === trackId);
       if (!track || !track.events.length) return prev;
       const events = [...track.events];
-      const durationMs = events[events.length - 1].offset;
+      const durationMs = track.totalDuration;
       if (durationMs <= 0) return prev;
 
       const pattern = createEventPattern(events, trackId);
@@ -715,8 +810,9 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
       }
       pattern.start(0);
 
+      console.log(`Started loop for track ${trackId}`);
       return prev.map(t => 
-        t.id === trackId ? { ...t, isLooping: true, loopId: pattern.id, activeHowls: t.activeHowls || new Set() } : t
+        t.id === trackId ? { ...t, isLooping: true, loopId: pattern.id } : t
       );
     });
   }
@@ -725,52 +821,32 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     setTracks(prev => {
       const track = prev.find(t => t.id === trackId);
       if (track && track.isLooping) clearTrackLoop(track);
-      
-      // Remove from tracking set
       patternInProgress.current.delete(trackId);
-      
       const updatedTracks = prev.map(t => 
         t.id === trackId && t.isLooping ? { ...t, isLooping: false, loopId: null } : t
       );
-      
-      // Stop transport if no tracks are looping
       if (!updatedTracks.some(t => t.isLooping) && Tone.Transport.state === 'started') {
         Tone.Transport.stop();
+        console.log('Stopped Transport as no tracks are looping');
       }
-      
+      console.log(`Stopped loop for track ${trackId}`);
       return updatedTracks;
     });
   }
 
-  // Start or stop all loops
   function toggleAllLoops() {
     const anyLooping = tracks.some(t => t.isLooping);
-    
     if (anyLooping) {
-      // Stop all loops
-      tracks.forEach(track => {
-        if (track.isLooping) {
-          stopLoop(track.id);
-        }
-      });
+      tracks.forEach(track => track.isLooping && stopLoop(track.id));
     } else {
-      // Start all loops that have events
-      tracks.forEach(track => {
-        if (track.events.length > 0 && !track.isLooping) {
-          startLoop(track.id);
-        }
-      });
+      tracks.forEach(track => track.events.length > 0 && !track.isLooping && startLoop(track.id));
     }
   }
 
-  // Clone a track with all its events
   function cloneTrack(trackId) {
     const track = tracks.find(t => t.id === trackId);
     if (!track) return;
-    
     const newTrackId = addTrack();
-    
-    // Copy events and settings
     setTracks(prev => prev.map(t => 
       t.id === newTrackId ? {
         ...t,
@@ -783,36 +859,176 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     ));
   }
 
-  // Handle key press from parent
+  async function downloadMix() {
+  if (!audioInitialized) {
+    await ensureAudioInitialized();
+  }
+
+  const durationSeconds = 120; // 2 minutes
+  const sampleRate = 44100;
+  const offlineContext = new OfflineAudioContext(2, durationSeconds * sampleRate, sampleRate);
+
+  const masterGain = offlineContext.createGain();
+  masterGain.gain.value = Math.pow(10, masterVolume / 20);
+  masterGain.connect(offlineContext.destination);
+
+  // Get keyData from Scene
+  const keyData = sceneRef.current?.getKeyData() || {};
+  const soundBuffers = {};
+
+  // Use preloaded buffers or load them if missing
+  for (const key of Object.keys(keyData)) {
+    if (keyData[key].buffer) {
+      soundBuffers[key] = keyData[key].buffer;
+      console.log(`Using preloaded buffer for ${key}: ${keyData[key].src}`);
+    } else {
+      console.warn(`No preloaded buffer for ${key}. Loading now...`);
+      try {
+        const response = await fetch(keyData[key].src);
+        if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await offlineContext.decodeAudioData(arrayBuffer);
+        soundBuffers[key] = audioBuffer;
+        console.log(`Loaded buffer for ${key}`);
+      } catch (err) {
+        console.error(`Failed to load buffer for ${key}:`, err);
+      }
+    }
+  }
+
+ 
+
+  // Schedule track events
+  tracks.forEach(track => {
+    if (track.events.length === 0) return;
+
+    const isMuted = track.muted;
+    const anySoloed = tracks.some(t => t.soloed);
+    const isSoloed = track.soloed;
+    if (isMuted || (anySoloed && !isSoloed)) return;
+
+    const trackGain = offlineContext.createGain();
+    trackGain.gain.value = Math.pow(10, track.volume / 20);
+    const panner = offlineContext.createStereoPanner();
+    panner.pan.value = track.pan;
+    trackGain.connect(panner);
+    panner.connect(masterGain);
+
+    const playableEvents = track.events.filter(ev => !ev.isMarker && soundBuffers[ev.key]);
+    const loopDuration = track.totalDuration / 1000;
+
+    if (loopDuration <= 0 || playableEvents.length === 0) {
+      console.warn(`Skipping track ${track.id}: Invalid duration or no playable events`);
+      return;
+    }
+
+    console.log(`Track ${track.id}: ${playableEvents.length} events, loop duration ${loopDuration}s`);
+    const loopCount = Math.ceil(durationSeconds / loopDuration);
+
+    for (let i = 0; i < loopCount; i++) {
+      playableEvents.forEach(event => {
+        const time = (i * loopDuration) + (event.offset / 1000);
+        if (time >= durationSeconds) return;
+
+        const source = offlineContext.createBufferSource();
+        source.buffer = soundBuffers[event.key];
+        source.connect(trackGain);
+        source.start(time);
+        console.log(`Scheduled ${event.key} at ${time}s on track ${track.id}`);
+      });
+    }
+  });
+
+  console.log('Starting offline rendering...');
+  let buffer;
+  try {
+    buffer = await offlineContext.startRendering();
+    console.log('Rendering complete. Buffer duration:', buffer.duration);
+  } catch (err) {
+    console.error('Rendering failed:', err);
+    throw err;
+  }
+
+  const channelData = buffer.getChannelData(0);
+  const hasAudio = channelData.some(sample => Math.abs(sample) > 0);
+  console.log('Buffer has audio:', hasAudio);
+
+  const wavBlob = bufferToWave(buffer, buffer.length, sampleRate);
+  const url = URL.createObjectURL(wavBlob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'MultiTrackLooper_Mix_2min.wav';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  console.log('Download started');
+}
+
+  function bufferToWave(buffer, len, sampleRate) {
+    const numChannels = buffer.numberOfChannels;
+    const wavLength = len * numChannels * 2 + 44;
+    const arrayBuffer = new ArrayBuffer(wavLength);
+    const view = new DataView(arrayBuffer);
+
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + len * numChannels * 2, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * 2, true);
+    view.setUint16(32, numChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, len * numChannels * 2, true);
+
+    for (let i = 0; i < len; i++) {
+      for (let channel = 0; channel < numChannels; channel++) {
+        const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+        const value = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+        view.setInt16(44 + (i * numChannels + channel) * 2, value | 0, true);
+      }
+    }
+
+    return new Blob([arrayBuffer], { type: 'audio/wav' });
+  }
+
+  function writeString(view, offset, string) {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  }
+
   useImperativeHandle(ref, () => ({
     recordKeyPress(key) {
       const now = performance.now();
       setTracks(prev => prev.map(track => {
         if (!track.isRecording) return track;
-        const offset = now - track.recordStartTime;
+        let offset = now - track.recordStartTime;
+        if (quantize) {
+          const beatDurationMs = 60000 / bpm;
+          offset = Math.round(offset / beatDurationMs) * beatDurationMs;
+        }
+        console.log(`Recorded key ${key} on track ${track.id} at offset ${offset}ms`);
         return { ...track, events: [...track.events, { offset, key }] };
       }));
-      
-      // Also play the sound for feedback during recording
       const recordingTrack = tracks.find(t => t.isRecording);
-      if (recordingTrack) {
-        playSound(key, recordingTrack.id);
-      }
+      if (recordingTrack) playSound(key, recordingTrack.id);
     },
-    
-    // Add method to add a track and return its ID
     addNewTrack() {
       return addTrack();
     },
-    
-    // Add method to trigger an event programmatically
     triggerEvent(key, trackId) {
       return playSound(key, trackId || null);
     }
   }));
 
   function toggleMinimized() {
-    setMinimized(!minimized);
+    setMinimized(prev => !prev);
+    console.log(`Looper UI ${minimized ? 'expanded' : 'minimized'}`);
   }
 
   async function handleButtonClick(callback) {
@@ -820,18 +1036,17 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     if (callback) callback();
   }
 
-  // Styles
   const containerStyle = { 
     position: 'absolute', 
     top: 0, 
     left: 0, 
-    padding: '0.8rem', 
+    padding: minimized ? '0.5rem' : '0.8rem', 
     background: 'rgba(10, 15, 30, 0.85)', 
     color: '#fff', 
     zIndex: 9999, 
-    width: minimized ? 'auto' : '500px', // Wider for better timeline view
-    maxHeight: '90vh',
-    overflowY: 'auto',
+    width: minimized ? 'auto' : '500px', 
+    maxHeight: minimized ? 'auto' : '90vh', 
+    overflowY: minimized ? 'hidden' : 'auto', 
     borderRadius: '0 0 8px 0', 
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)', 
     backdropFilter: 'blur(8px)', 
@@ -842,7 +1057,6 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     display: 'flex', 
     justifyContent: 'space-between', 
     alignItems: 'center', 
-    marginBottom: minimized ? 0 : '0.8rem', 
     padding: '0.3rem 0.5rem', 
     background: 'linear-gradient(90deg, rgba(50, 60, 120, 0.5), rgba(80, 70, 140, 0.5))', 
     borderRadius: '4px', 
@@ -942,7 +1156,6 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     fontWeight: 'bold'
   };
 
-  // Rendering functions
   function renderTrackTimelineView(track) {
     const maxDuration = track.totalDuration || (track.events.length > 0 ? Math.max(...track.events.map(e => e.offset)) : 2000);
     const measureDurationMs = 4 * (60000 / bpm);
@@ -971,7 +1184,7 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
         
         <div style={{ 
           position: 'relative', 
-          height: '80px', // Taller for better visibility
+          height: '80px',
           background: 'rgba(30, 35, 50, 0.6)', 
           borderRadius: '4px', 
           margin: '0.5rem 0', 
@@ -992,7 +1205,6 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
             </div>
           )}
           
-          {/* Measure grid */}
           <div style={{ 
             position: 'absolute', 
             top: 0, 
@@ -1003,7 +1215,6 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
             zIndex: 1 
           }} />
           
-          {/* Beat grid */}
           <div style={{ 
             position: 'absolute', 
             top: 0, 
@@ -1014,7 +1225,6 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
             zIndex: 1 
           }} />
           
-          {/* Loop end marker */}
           {loopEndMarker && (
             <div style={{ 
               position: 'absolute', 
@@ -1037,7 +1247,6 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
             </div>
           )}
           
-          {/* Sound events */}
           {soundEvents.sort((a, b) => a.offset - b.offset).map((ev, idx) => {
             const positionPercent = (ev.offset / maxDuration) * 100;
             const keyColors = { 
@@ -1058,7 +1267,7 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
                   left: `${positionPercent}%`, 
                   top: '10px', 
                   width: `${width}%`, 
-                  height: '60px', // Taller for better visibility
+                  height: '60px',
                   minWidth: '4px',
                   background: color, 
                   borderRadius: '2px', 
@@ -1083,7 +1292,6 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
             );
           })}
           
-          {/* Playhead */}
           {track.isLooping && track.events.length > 0 && (
             <div style={{ 
               position: 'absolute', 
@@ -1097,44 +1305,11 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
             }} />
           )}
         </div>
-        
-        {/* Sound key legend */}
-        {soundEvents.length > 0 && (
-          <div style={{ 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            gap: '0.5rem', 
-            marginTop: '0.5rem', 
-            fontSize: '0.7rem'
-          }}>
-            {[...new Set(soundEvents.map(e => e.key))].map(key => {
-              const keyColors = { 
-                q: '#FF5555', w: '#FFAA55', e: '#FFFF55', r: '#55FF55', t: '#55FFFF', 
-                a: '#5555FF', s: '#AA55FF', d: '#FF55FF', f: '#FF55AA', 
-                z: '#FFAAFF', x: '#AAFFAA', c: '#AAAAFF',
-                '1': '#AAFFAA', '2': '#AAAAFF', '3': '#FFAAFF', '4': '#FFFFAA', '5': '#AAFFFF', '6': '#FFAAAA'
-              };
-              return (
-                <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                  <div style={{ 
-                    width: '10px', 
-                    height: '10px', 
-                    borderRadius: '50%', 
-                    background: keyColors[key] || '#FFFFFF', 
-                    boxShadow: `0 0 4px ${keyColors[key] || '#FFFFFF'}` 
-                  }}></div>
-                  <span>{key}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
     );
   }
 
   function renderTrackPlayerView(track) {
-    // Get unique keys in this track
     const soundEvents = track.events.filter(ev => !ev.isMarker);
     const uniqueKeys = [...new Set(soundEvents.map(e => e.key))];
     
@@ -1188,11 +1363,7 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   }
 
   function renderTrackData(track) {
-    if (viewMode === 'timeline') {
-      return renderTrackTimelineView(track);
-    } else {
-      return renderTrackPlayerView(track);
-    }
+    return viewMode === 'timeline' ? renderTrackTimelineView(track) : renderTrackPlayerView(track);
   }
 
   function renderTrackControls(track) {
@@ -1297,6 +1468,19 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
 
   return (
     <div style={containerStyle}>
+      <div style={{ 
+        position: 'absolute', 
+        top: '0.5rem', 
+        right: '0.5rem', 
+        padding: '0.5rem', 
+        background: 'rgba(255, 50, 50, 0.7)', 
+        borderRadius: '4px',
+        cursor: 'pointer',
+        zIndex: 10000
+      }} onClick={() => forceResumeAudio().then(testAudio)}>
+        Debug Audio
+      </div>
+      
       <div style={headerStyle} onClick={toggleMinimized}>
         <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 'bold' }}>
           Multi-Track Looper
@@ -1359,7 +1543,7 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
               </span>
             </div>
             
-            <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <button
                 onClick={() => handleButtonClick(toggleAllLoops)}
                 style={tracks.some(t => t.isLooping) ? activeButtonStyle : buttonStyle}
@@ -1367,6 +1551,15 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
               >
                 {tracks.some(t => t.isLooping) ? "Stop All" : "Play All"}
               </button>
+              <label style={{ fontSize: '0.9rem' }}>
+                Quantize:
+                <input 
+                  type="checkbox" 
+                  checked={quantize} 
+                  onChange={(e) => setQuantize(e.target.checked)} 
+                  style={{ marginLeft: '0.3rem' }}
+                />
+              </label>
             </div>
           </div>
           
@@ -1385,15 +1578,25 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
             </button>
           </div>
           
-          <button 
-            style={addTrackButtonStyle}
-            onClick={() => handleButtonClick(addTrack)}
-          >
-            <span>+</span> Add Track
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.8rem' }}>
+            <button 
+              style={addTrackButtonStyle}
+              onClick={() => handleButtonClick(addTrack)}
+            >
+              <span>+</span> Add Track
+            </button>
+            <button 
+              style={{ ...buttonStyle, background: 'rgba(40, 150, 40, 0.5)', borderColor: 'rgba(60, 200, 60, 0.5)' }}
+              onClick={() => handleButtonClick(downloadMix)}
+              disabled={tracks.every(t => t.events.length === 0)}
+              title="Download a 2-minute mix of all tracks"
+            >
+              Download 2-Min Mix
+            </button>
+          </div>
           
           {tracks.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '1rem', opacity: 0.7, fontSize: '0.9rem' }}>
+            <div style={{ textAlign: 'center', padding: '1rem', opacity: '0.7', fontSize: '0.9rem' }}>
               No tracks yet. Click "Add Track" to begin.
             </div>
           )}
@@ -1409,7 +1612,7 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
               >
                 <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
                   <span style={{ 
-                    transform: track.isCollapsed ? 'rotate(-90deg)' : 'rotate(0)', 
+                    transform: track.isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', 
                     transition: 'transform 0.2s ease', 
                     display: 'inline-block', 
                     marginRight: '0.4rem' 

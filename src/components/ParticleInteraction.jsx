@@ -1,5 +1,5 @@
 // FILE: src/components/ParticleInteraction.jsx
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useParticleTexture } from './ParticleTexture';
@@ -7,6 +7,7 @@ import { useParticleTexture } from './ParticleTexture';
 export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
   const particles = useRef();
   const texture = useParticleTexture();
+  const isComponentMounted = useRef(true);
   
   const count = 400; // Reduced from 1200
   
@@ -103,8 +104,15 @@ export default function ParticleInteraction({ spheres, soundIntensity = 0 }) {
     }
   ], []);
 
+  // Add this effect to handle component unmounting
+  useEffect(() => {
+    return () => {
+      isComponentMounted.current = false;
+    };
+  }, []);
+
   useFrame(({ clock }) => {
-    if (!particles.current) return;
+    if (!particles.current || !isComponentMounted.current) return;
     
     const time = clock.getElapsedTime();
     const deltaTime = time - timeRef.current;

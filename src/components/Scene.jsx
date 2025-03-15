@@ -16,20 +16,67 @@ import ParticleField from './ParticleField';
 import ParticleInteraction from './ParticleInteraction';
 import Lighting from './Lighting';
 import StarBase from './StarBase';
+import Planet from './Planet';
 import { FirstPersonControls } from 'three/examples/jsm/controls/FirstPersonControls.js';
 
-const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
+// Helper functions to determine colors based on visualMode
+const getColorForVisualMode = (baseColor, visualMode) => {
+  const color = new THREE.Color(baseColor);
+  switch (visualMode) {
+    case 'neon':
+      return new THREE.Color('#ff00ff'); // Bright pink
+    case 'dream':
+      return new THREE.Color('#aaccff'); // Soft blue
+    case 'monochrome':
+      const gray = (color.r + color.g + color.b) / 3;
+      return new THREE.Color(gray, gray, gray);
+    case 'default':
+    default:
+      return color; // Use the original color
+  }
+};
+
+const getEmissiveColorForVisualMode = (visualMode) => {
+  switch (visualMode) {
+    case 'neon':
+      return new THREE.Color('#ff00ff'); // Bright emissive pink
+    case 'dream':
+      return new THREE.Color('#aaccff'); // Soft emissive blue
+    case 'monochrome':
+      return new THREE.Color('#000000'); // No emissive in monochrome
+    case 'default':
+    default:
+      return new THREE.Color('#000000'); // No emissive by default
+  }
+};
+
+const getFogColor = (visualMode) => {
+  switch (visualMode) {
+    case 'neon':
+      return new THREE.Color('#1a001a'); // Dark purple
+    case 'dream':
+      return new THREE.Color('#0a1a2a'); // Deep blue
+    case 'monochrome':
+      return new THREE.Color('#333333'); // Dark gray
+    case 'default':
+    default:
+      return new THREE.Color('#030318'); // Default dark blue
+  }
+};
+
+const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }, ref) {
   const [spheres, setSpheres] = useState([]);
   const [rings, setRings] = useState([]);
   const [cameraMode, setCameraMode] = useState('orbit');
-  const { camera } = useThree();
+  const { camera, scene } = useThree();
   const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0));
-  const cameraPositionRef = useRef(new THREE.Vector3(0, 2, 5));
+  const cameraPositionRef = useRef(new THREE.Vector3(0, 5, 10));
   const cameraPanoramaAngle = useRef(0);
   const lastActiveTime = useRef(Date.now());
   const activeSphereRef = useRef(null);
   const [orbColor, setOrbColor] = useState(new THREE.Color('#00FF66'));
   const freeControlsRef = useRef();
+  const audioContext = useRef(new (window.AudioContext || window.webkitAudioContext)());
 
   const cameraParams = useRef({
     speed: 0.02,
@@ -37,44 +84,62 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
     orbitHeight: 2,
     followSpeed: 0.05,
     panoramaSpeed: 0.005,
-    panoramaRadius: 8,
+    panoramaRadius: 20,
     autoSwitchDelay: 30000,
   });
 
   const keyData = {
-    '1': { color: '#ff5252', src: '/Sounds/clap1.mp3', scale: 1.0, lifetime: 3000, pulseSpeed: 0.7, category: 'Clap' },
-    '2': { color: '#ff7752', src: '/Sounds/clap2.mp3', scale: 1.1, lifetime: 3000, pulseSpeed: 0.7, category: 'Clap' },
-    '3': { color: '#ff9c52', src: '/Sounds/clap3.mp3', scale: 1.2, lifetime: 3000, pulseSpeed: 0.7, category: 'Clap' },
-    '4': { color: '#ffc152', src: '/Sounds/drum1.mp3', scale: 1.0, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    '5': { color: '#ffe552', src: '/Sounds/drum2.mp3', scale: 1.1, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    '6': { color: '#f0ff52', src: '/Sounds/drum3.mp3', scale: 1.2, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    '7': { color: '#cbff52', src: '/Sounds/drum4.mp3', scale: 1.3, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    '8': { color: '#a6ff52', src: '/Sounds/drum5.mp3', scale: 1.1, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    '9': { color: '#81ff52', src: '/Sounds/drum6.mp3', scale: 1.2, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    '0': { color: '#52ff5e', src: '/Sounds/drum7.mp3', scale: 1.3, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    'q': { color: '#52ff83', src: '/Sounds/drum8.mp3', scale: 1.2, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    'w': { color: '#52ffa8', src: '/Sounds/drum9.mp3', scale: 1.1, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    'e': { color: '#52ffcd', src: '/Sounds/drum10.mp3', scale: 1.2, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    'r': { color: '#52fff2', src: '/Sounds/drum11.mp3', scale: 1.3, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    't': { color: '#52d4ff', src: '/Sounds/drum12.mp3', scale: 1.1, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
-    'y': { color: '#52afff', src: '/Sounds/drumsnare9.mp3', scale: 1.4, lifetime: 3500, pulseSpeed: 0.8, category: 'Snare' },
-    'u': { color: '#528aff', src: '/Sounds/intro.mp3', scale: 1.5, lifetime: 6000, pulseSpeed: 0.5, category: 'Intro' },
-    'i': { color: '#5266ff', src: '/Sounds/intro2.mp3', scale: 1.6, lifetime: 6000, pulseSpeed: 0.5, category: 'Intro' },
-    'o': { color: '#6652ff', src: '/Sounds/intro3.mp3', scale: 1.7, lifetime: 6000, pulseSpeed: 0.5, category: 'Intro' },
-    'p': { color: '#8b52ff', src: '/Sounds/piano1.mp3', scale: 1.8, lifetime: 7000, pulseSpeed: 0.4, category: 'Piano' },
-    'a': { color: '#af52ff', src: '/Sounds/piano2.mp3', scale: 1.5, lifetime: 7000, pulseSpeed: 0.4, category: 'Piano' },
-    's': { color: '#d452ff', src: '/Sounds/piano3.mp3', scale: 1.5, lifetime: 7000, pulseSpeed: 0.4, category: 'Piano' },
-    'd': { color: '#f952ff', src: '/Sounds/loop1.mp3', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
-    'f': { color: '#ff52d4', src: '/Sounds/loop2.mp3', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
-    'g': { color: '#ff52af', src: '/Sounds/loop3.mp3', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
-    'h': { color: '#ff528a', src: '/Sounds/loop4.mp3', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
-    'j': { color: '#ff5266', src: '/Sounds/loop5.mp3', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
-    'k': { color: '#ff7752', src: '/Sounds/loop6.mp3', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
-    'l': { color: '#ff9c52', src: '/Sounds/loop7.mp3', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
-    'z': { color: '#ffc152', src: '/Sounds/loop8.mp3', scale: 1.5, lifetime: 8000, pulseSpeed: 0.3, category: 'Loop' },
-    'x': { color: '#ffe552', src: '/Sounds/loop9.mp3', scale: 1.5, lifetime: 8000, pulseSpeed: 0.3, category: 'Loop' },
-    'c': { color: '#f0ff52', src: '/Sounds/loop10.mp3', scale: 1.5, lifetime: 8000, pulseSpeed: 0.3, category: 'Loop' }
+    '1': { color: '#ff5252', src: '/Sounds/clap1.wav', scale: 1.0, lifetime: 3000, pulseSpeed: 0.7, category: 'Clap' },
+    '2': { color: '#ff7752', src: '/Sounds/clap2.wav', scale: 1.1, lifetime: 3000, pulseSpeed: 0.7, category: 'Clap' },
+    '3': { color: '#ff9c52', src: '/Sounds/clap3.wav', scale: 1.2, lifetime: 3000, pulseSpeed: 0.7, category: 'Clap' },
+    '4': { color: '#ffc152', src: '/Sounds/drum1.wav', scale: 1.0, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    '5': { color: '#ffe552', src: '/Sounds/drum2.wav', scale: 1.1, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    '6': { color: '#f0ff52', src: '/Sounds/drum3.wav', scale: 1.2, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    '7': { color: '#cbff52', src: '/Sounds/drum4.wav', scale: 1.3, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    '8': { color: '#a6ff52', src: '/Sounds/drum5.wav', scale: 1.1, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    '9': { color: '#81ff52', src: '/Sounds/drum6.wav', scale: 1.2, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    '0': { color: '#52ff5e', src: '/Sounds/drum7.wav', scale: 1.3, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    'q': { color: '#52ff83', src: '/Sounds/drum8.wav', scale: 1.2, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    'w': { color: '#52ffa8', src: '/Sounds/drum9.wav', scale: 1.1, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    'e': { color: '#52ffcd', src: '/Sounds/drum10.wav', scale: 1.2, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    'r': { color: '#52fff2', src: '/Sounds/drum11.wav', scale: 1.3, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    't': { color: '#52d4ff', src: '/Sounds/drum12.wav', scale: 1.1, lifetime: 3500, pulseSpeed: 0.6, category: 'Drum' },
+    'y': { color: '#52afff', src: '/Sounds/drumsnare9.wav', scale: 1.4, lifetime: 3500, pulseSpeed: 0.8, category: 'Snare' },
+    'u': { color: '#528aff', src: '/Sounds/intro.wav', scale: 1.5, lifetime: 6000, pulseSpeed: 0.5, category: 'Intro' },
+    'i': { color: '#5266ff', src: '/Sounds/intro2.wav', scale: 1.6, lifetime: 6000, pulseSpeed: 0.5, category: 'Intro' },
+    'o': { color: '#6652ff', src: '/Sounds/intro3.wav', scale: 1.7, lifetime: 6000, pulseSpeed: 0.5, category: 'Intro' },
+    'p': { color: '#8b52ff', src: '/Sounds/piano1.wav', scale: 1.8, lifetime: 7000, pulseSpeed: 0.4, category: 'Piano' },
+    'a': { color: '#af52ff', src: '/Sounds/piano2.wav', scale: 1.5, lifetime: 7000, pulseSpeed: 0.4, category: 'Piano' },
+    's': { color: '#d452ff', src: '/Sounds/piano3.wav', scale: 1.5, lifetime: 7000, pulseSpeed: 0.4, category: 'Piano' },
+    'd': { color: '#f952ff', src: '/Sounds/loop1.wav', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
+    'f': { color: '#ff52d4', src: '/Sounds/loop2.wav', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
+    'g': { color: '#ff52af', src: '/Sounds/loop3.wav', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
+    'h': { color: '#ff528a', src: '/Sounds/loop4.wav', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
+    'j': { color: '#ff5266', src: '/Sounds/loop5.wav', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
+    'k': { color: '#ff7752', src: '/Sounds/loop6.wav', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
+    'l': { color: '#ff9c52', src: '/Sounds/loop7.wav', scale: 1.3, lifetime: 8000, pulseSpeed: 0.4, category: 'Loop' },
+    'z': { color: '#ffc152', src: '/Sounds/loop8.wav', scale: 1.5, lifetime: 8000, pulseSpeed: 0.3, category: 'Loop' },
+    'x': { color: '#ffe552', src: '/Sounds/loop9.wav', scale: 1.5, lifetime: 8000, pulseSpeed: 0.3, category: 'Loop' },
+    'c': { color: '#f0ff52', src: '/Sounds/loop10.wav', scale: 1.5, lifetime: 8000, pulseSpeed: 0.3, category: 'Loop' }
   };
+
+  useEffect(() => {
+    const loadBuffers = async () => {
+      for (const key of Object.keys(keyData)) {
+        try {
+          const response = await fetch(keyData[key].src);
+          if (!response.ok) throw new Error(`Failed to fetch ${keyData[key].src}: ${response.status}`);
+          const arrayBuffer = await response.arrayBuffer();
+          const audioBuffer = await audioContext.current.decodeAudioData(arrayBuffer);
+          keyData[key].buffer = audioBuffer; // Attach buffer to keyData
+          console.log(`Loaded buffer for ${key}: ${keyData[key].src}`);
+        } catch (err) {
+          console.error(`Error loading buffer for ${key}:`, err);
+        }
+      }
+    };
+    loadBuffers();
+  }, []); // Empty dependency array since keyData is stable within the component
 
   const trackPositions = useRef({});
   const recordedEvents = useRef([]);
@@ -88,12 +153,18 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
   const intensityDecay = useRef(0.95);
   const activeSpacecraftRef = useRef(null);
 
+  // Update scene fog based on visualMode
+  useEffect(() => {
+    console.log('Visual Mode updated in Scene:', visualMode);
+    scene.fog = new THREE.Fog(getFogColor(visualMode), 10, 50);
+  }, [visualMode, scene]);
+
   useFrame(({ clock }, delta) => {
     const time = clock.getElapsedTime();
     const now = Date.now();
 
     if (now - lastActiveTime.current > cameraParams.current.autoSwitchDelay) {
-      const modes = ['orbit', 'panorama', 'follow'];
+      const modes = ['orbit', 'panorama', 'follow', 'free'];
       const currentIndex = modes.indexOf(cameraMode);
       const nextIndex = (currentIndex + 1) % modes.length;
       setCameraMode(modes[nextIndex]);
@@ -171,7 +242,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
     const newRing = {
       id: ringId,
       position,
-      color,
+      color: getColorForVisualMode(color, visualMode),
       createdAt: Date.now(),
       lifetime: 2000,
       trackId,
@@ -249,6 +320,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
       color.b = Math.min(1, color.b * 1.2);
       sphereColor = color.getStyle();
     }
+    sphereColor = getColorForVisualMode(sphereColor, visualMode).getStyle();
     const newSphere = {
       position,
       color: sphereColor,
@@ -443,7 +515,9 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
     cameraParams.current.panoramaSpeed = speed / 4;
   }
 
-  function setPerformanceMode(settings) {}
+  function setPerformanceMode(settings) {
+    // Update performance settings if needed
+  }
 
   useImperativeHandle(ref, () => ({
     createSphereAndPlaySound,
@@ -459,7 +533,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
     getSoundIntensity: () => soundIntensity.current,
     getCurrentCameraMode: () => cameraMode,
     clearSoundsForTrack,
-    // Add this debug helper function for DebugUI
+    getKeyData: () => keyData,
     logCameraInfo: () => {
       return {
         position: camera.position.clone(),
@@ -468,7 +542,6 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
         target: cameraTargetRef.current?.clone() || null
       };
     },
-    // Add a function to get the active spacecraft
     getActiveSpacecraft: () => activeSpacecraftRef.current
   }));
 
@@ -476,19 +549,30 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
     return (
       <mesh position={ring.position} rotation={[Math.PI / 2, 0, 0]}>
         <ringGeometry args={[ring.scale * 1.5, ring.scale * 2.0, 32]} />
-        <meshBasicMaterial color={ring.color} transparent={true} opacity={ring.opacity} side={THREE.DoubleSide} />
+        <meshBasicMaterial
+          color={ring.color}
+          transparent={true}
+          opacity={ring.opacity}
+          side={THREE.DoubleSide}
+        />
       </mesh>
     );
   }
 
   return (
     <>
-      <Environment soundIntensity={soundIntensity.current} />
+      <Planet
+        modelPath="/models/planet1.obj"
+        visualMode={visualMode}
+        scale={10}
+        position={[0, 15, -70]}
+      />
+      <Environment soundIntensity={soundIntensity.current} visualMode={visualMode} />
       {cameraMode === 'orbit' && (
         <OrbitControls
           enableZoom={true}
           enablePan={true}
-          maxDistance={10}
+          maxDistance={50}
           minDistance={1}
           enableDamping
           dampingFactor={0.05}
@@ -496,38 +580,49 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
           autoRotate={false}
         />
       )}
-      <Lighting soundIntensity={soundIntensity.current} orbColor={orbColor} />
+      <Lighting
+        soundIntensity={soundIntensity.current}
+        orbColor={orbColor}
+        visualMode={visualMode}
+      />
       <Stars
         radius={20}
         depth={10}
         count={props.performanceSettings.starCount}
         factor={2}
-        saturation={0.3}
+        saturation={visualMode === 'monochrome' ? 0 : 0.3}
         fade
         speed={0.2}
       />
-      <ParticleField soundIntensity={soundIntensity.current} performanceSettings={props.performanceSettings} />
-      <ParticleInteraction spheres={spheres} soundIntensity={soundIntensity.current} />
-      <StarBase soundIntensity={soundIntensity.current} onColorChange={(color) => setOrbColor(color)} />
-      
-      {/* Add debug helpers for visible spacecraft */}
+      <ParticleField
+        soundIntensity={soundIntensity.current}
+        performanceSettings={props.performanceSettings}
+        visualMode={visualMode}
+      />
+      <ParticleInteraction
+        spheres={spheres}
+        soundIntensity={soundIntensity.current}
+        visualMode={visualMode}
+      />
+      <StarBase
+        soundIntensity={soundIntensity.current}
+        onColorChange={(color) => setOrbColor(getColorForVisualMode(color, visualMode))}
+        visualMode={visualMode}
+      />
       {process.env.NODE_ENV === 'development' && spacecraftRefs && spacecraftRefs.map((spacecraftRef, index) => {
         if (!spacecraftRef?.current) return null;
-        
         try {
           const position = spacecraftRef.current.getPosition();
-          if (position.z <= -500) return null; // Don't render helpers for hidden spacecraft
-          
+          if (position.z <= -500) return null;
           return (
             <group key={`helper-${index}`} position={position}>
-              <axesHelper args={[2]} /> {/* Shows XYZ axes to help with orientation */}
+              <axesHelper args={[2]} />
             </group>
           );
         } catch (err) {
-          return null; // Skip if there's an error
+          return null;
         }
       })}
-      
       {spheres.map(sphere => (
         <Sphere
           key={sphere.id}
@@ -543,6 +638,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
           isRecorded={sphere.isRecorded}
           emissiveIntensity={sphere.emissiveIntensity}
           opacity={sphere.opacity}
+          visualMode={visualMode}
         />
       ))}
       {rings.map(ring => (
@@ -553,5 +649,4 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, ...props }, ref) {
 });
 
 export default Scene;
-
 export { Scene };
