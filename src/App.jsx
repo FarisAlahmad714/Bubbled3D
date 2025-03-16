@@ -8,6 +8,7 @@ import AdManager from './components/AdManager';
 import CameraBeamLight from './components/CameraBeamLight';
 import DebugUI from './components/DebugUI';
 import EnhancedBubblesTitle from './components/EnhancedBubblesTitle';
+import { AudioManagerProvider, useAudioManager } from './components/AudioManager';
 
 // Performance preset configurations
 const PERFORMANCE_PRESETS = {
@@ -34,7 +35,17 @@ const PERFORMANCE_PRESETS = {
   }
 };
 
-export default function App() {
+// Main App component wrapped with AudioManagerProvider
+export default function AppWithAudio() {
+  return (
+    <AudioManagerProvider>
+      <App />
+    </AudioManagerProvider>
+  );
+}
+
+// Actual App implementation
+function App() {
   const [entered, setEntered] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [showHelpPopup, setShowHelpPopup] = useState(false);
@@ -50,6 +61,9 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
+  
+  // Access the AudioManager using our custom hook
+  const audioManager = useAudioManager();
   
   const sceneRef = useRef(null);
   const looperRef = useRef(null);
@@ -90,9 +104,19 @@ export default function App() {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
   
-  // Simulate loading progress on initial load
+  // Update loading progress from AudioManager
   useEffect(() => {
     if (!entered && isLoading) {
+      // Use AudioManager's loading progress if available
+      if (audioManager && audioManager.loadingProgress > 0) {
+        setLoadingProgress(audioManager.loadingProgress);
+        if (audioManager.loadingProgress >= 100) {
+          setTimeout(() => setIsLoading(false), 500);
+        }
+        return;
+      }
+      
+      // Fallback loading simulation if AudioManager isn't ready yet
       let interval = setInterval(() => {
         setLoadingProgress(prev => {
           const newProgress = prev + (Math.random() * 15);
@@ -107,8 +131,9 @@ export default function App() {
       
       return () => clearInterval(interval);
     }
-  }, [isLoading, entered]);
+  }, [isLoading, entered, audioManager]);
 
+  // FPS counter
   useEffect(() => {
     let frameId;
     const updateFps = () => {
@@ -126,6 +151,7 @@ export default function App() {
     return () => cancelAnimationFrame(frameId);
   }, []);
 
+  // Hide controls when inactive
   useEffect(() => {
     const resetTimeout = () => {
       if (controlsTimeoutRef.current) {
@@ -152,6 +178,7 @@ export default function App() {
     };
   }, [showControls]);
 
+  // Update sound intensity and camera mode from Scene component
   useEffect(() => {
     if (!sceneRef.current) return;
     const updateInterval = setInterval(() => {
@@ -215,15 +242,24 @@ export default function App() {
     }
   };
 
-  function handleEnterClick() {
-    if (Howler.usingWebAudio && Howler.ctx) {
-      Howler.ctx.resume().then(() => {
-        console.log('Audio context resumed with Web Audio!');
-        setEntered(true);
-      });
-    } else {
-      console.log('Using HTML5 audio fallback or no Web Audio support');
+  async function handleEnterClick() {
+    // Initialize audio context
+    try {
+      await audioManager.forceResumeAudio();
+      console.log('Audio context resumed successfully!');
       setEntered(true);
+    } catch (error) {
+      console.error('Error initializing audio:', error);
+      // Fallback to traditional method if our AudioManager fails
+      if (Howler.usingWebAudio && Howler.ctx) {
+        Howler.ctx.resume().then(() => {
+          console.log('Audio context resumed with Howler Web Audio!');
+          setEntered(true);
+        });
+      } else {
+        console.log('Using HTML5 audio fallback or no Web Audio support');
+        setEntered(true);
+      }
     }
   }
 
@@ -288,7 +324,14 @@ export default function App() {
           style={{ width: `${loadingProgress}%` }}
         />
       </div>
-      <div className="loading-text">Loading Experience... {Math.floor(loadingProgress)}%</div>
+      <div className="loading-text">
+        Loading Experience... {Math.floor(loadingProgress)}%
+        {audioManager.bufferLoadErrors.length > 0 && (
+          <div className="loading-errors">
+            Some audio resources could not be loaded. Sounds may be limited.
+          </div>
+        )}
+      </div>
     </div>
   );
 

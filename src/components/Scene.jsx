@@ -7,7 +7,6 @@ import React, {
 } from 'react';
 import { OrbitControls, Stars } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Howl } from 'howler';
 import { v4 as uuidv4 } from 'uuid';
 import * as THREE from 'three';
 import Sphere from './Sphere';
@@ -18,6 +17,7 @@ import Lighting from './Lighting';
 import StarBase from './StarBase';
 import Planet from './Planet';
 import { FirstPersonControls } from 'three/examples/jsm/controls/FirstPersonControls.js';
+import { useAudioManager } from './AudioManager';
 
 // Helper functions to determine colors based on visualMode
 const getColorForVisualMode = (baseColor, visualMode) => {
@@ -76,7 +76,10 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
   const activeSphereRef = useRef(null);
   const [orbColor, setOrbColor] = useState(new THREE.Color('#00FF66'));
   const freeControlsRef = useRef();
-  const audioContext = useRef(new (window.AudioContext || window.webkitAudioContext)());
+  
+  // Get audio manager from context
+  const audioManager = useAudioManager();
+  const bufferLoadingStarted = useRef(false);
 
   const cameraParams = useRef({
     speed: 0.02,
@@ -123,23 +126,19 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
     'c': { color: '#f0ff52', src: '/Sounds/loop10.wav', scale: 1.5, lifetime: 8000, pulseSpeed: 0.3, category: 'Loop' }
   };
 
+  // Preload audio buffers
   useEffect(() => {
-    const loadBuffers = async () => {
-      for (const key of Object.keys(keyData)) {
-        try {
-          const response = await fetch(keyData[key].src);
-          if (!response.ok) throw new Error(`Failed to fetch ${keyData[key].src}: ${response.status}`);
-          const arrayBuffer = await response.arrayBuffer();
-          const audioBuffer = await audioContext.current.decodeAudioData(arrayBuffer);
-          keyData[key].buffer = audioBuffer; // Attach buffer to keyData
-          console.log(`Loaded buffer for ${key}: ${keyData[key].src}`);
-        } catch (err) {
-          console.error(`Error loading buffer for ${key}:`, err);
-        }
-      }
-    };
-    loadBuffers();
-  }, []); // Empty dependency array since keyData is stable within the component
+    if (audioManager.isReady && !bufferLoadingStarted.current) {
+      bufferLoadingStarted.current = true;
+      audioManager.loadBuffers(keyData)
+        .then(() => {
+          console.log('All sound buffers preloaded');
+        })
+        .catch(err => {
+          console.error('Error preloading sound buffers:', err);
+        });
+    }
+  }, [audioManager.isReady]);
 
   const trackPositions = useRef({});
   const recordedEvents = useRef([]);
@@ -147,7 +146,6 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
   const [isRecording, setIsRecording] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
   const timeoutsAndIntervals = useRef([]);
-  const activeSounds = useRef(new Map());
   const soundIntensity = useRef(0);
   const peakIntensity = useRef(0);
   const intensityDecay = useRef(0.95);
@@ -256,40 +254,10 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
     return ringId;
   }
 
-  function playTrackEvents(events, baseTime, trackId) {
-    if (!events || !events.length) {
-      console.log(`No events to play for track ID: ${trackId}`);
-      return 0;
-    }
-    const totalDuration = events[events.length - 1].offset;
-    events.forEach(ev => {
-      const offsetSeconds = ev.offset / 1000;
-      if (keyData[ev.key]) {
-        try {
-          if (typeof Tone !== 'undefined' && Tone.Transport) {
-            Tone.Transport.scheduleOnce(time => {
-              console.log(`Playing ${ev.key} at Transport time ${time} (offset ${ev.offset}ms)`);
-              createSphereAndPlaySound(ev.key, trackId, true);
-            }, baseTime + offsetSeconds);
-          } else {
-            const timeout = setTimeout(() => {
-              createSphereAndPlaySound(ev.key, trackId, false);
-            }, ev.offset);
-            timeoutsAndIntervals.current.push(timeout);
-          }
-        } catch (err) {
-          console.error(`Error scheduling event for key ${ev.key}:`, err);
-        }
-      } else {
-        console.error(`No sound data for key ${ev.key}`);
-      }
-    });
-    return totalDuration;
-  }
-
   function createSphereAndPlaySound(k, trackId = null, isRecorded = false) {
     if (!keyData[k] || spheres.length >= props.performanceSettings.maxSpheres) return null;
     lastActiveTime.current = Date.now();
+    
     let position;
     if (trackId && isRecorded) {
       const constraint = getTrackPositionConstraint(trackId);
@@ -309,9 +277,11 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
         radius * Math.sin(phi) * Math.sin(theta)
       ];
     }
+    
     const scaleMultiplier = isRecorded ? 1.35 : 1.0;
     const lifetimeMultiplier = isRecorded ? 1.25 : 1.0;
     const pulseSpeedMultiplier = isRecorded ? 1.2 : 1.0;
+    
     let sphereColor = keyData[k].color;
     if (isRecorded) {
       const color = new THREE.Color(sphereColor);
@@ -320,7 +290,9 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
       color.b = Math.min(1, color.b * 1.2);
       sphereColor = color.getStyle();
     }
+    
     sphereColor = getColorForVisualMode(sphereColor, visualMode).getStyle();
+    
     const newSphere = {
       position,
       color: sphereColor,
@@ -335,49 +307,40 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
       emissiveIntensity: isRecorded ? 0.7 : 0.4,
       opacity: isRecorded ? 0.9 : 0.7
     };
+    
     activeSphereRef.current = new THREE.Vector3(...position);
+    
     setSpheres(prev => {
       const next = [...prev, newSphere];
       if (next.length > props.performanceSettings.maxSpheres) next.shift();
       return next;
     });
+    
     if (isRecorded) {
       createRingEffect(position, sphereColor, trackId);
     }
-    let sound = null;
+    
+    // Play sound unless it should be silent (used for recorded events)
     const silent = isRecorded && trackId;
-    if (!silent) {
-      sound = new Howl({
-        src: Array.isArray(keyData[k].src) ? keyData[k].src : [keyData[k].src],
-        volume: 0.8 + (soundIntensity.current * 0.2),
-        preload: true,
-        onend: () => {
-          if (trackId && activeSounds.current.has(trackId)) {
-            activeSounds.current.get(trackId).delete(sound);
-          }
-        },
+    
+    if (!silent && audioManager.isReady) {
+      // Use the centralized audio manager to play sounds
+      audioManager.playSound(k, keyData, {
+        volume: 0.8 + (soundIntensity.current * 0.2)
       });
-      sound.play();
-      if (trackId) {
-        if (!activeSounds.current.has(trackId)) {
-          activeSounds.current.set(trackId, new Set());
-        }
-        activeSounds.current.get(trackId).add(sound);
-      }
     }
+    
+    // Update sound intensity
     soundIntensity.current += 0.3;
     if (soundIntensity.current > 1) soundIntensity.current = 1;
     peakIntensity.current = Math.max(peakIntensity.current, soundIntensity.current);
-    return sound;
+    
+    return true;
   }
 
   function clearSoundsForTrack(trackId) {
-    if (activeSounds.current.has(trackId)) {
-      const trackSounds = activeSounds.current.get(trackId);
-      trackSounds.forEach((sound) => sound.stop());
-      activeSounds.current.delete(trackId);
-      console.log(`Cleared sounds for track ${trackId}`);
-    }
+    console.log(`Clearing sounds for track ${trackId}`);
+    // Remove spheres and rings for the track
     setSpheres(prev => prev.filter(s => s.trackId !== trackId));
     setRings(prev => prev.filter(r => r.trackId !== trackId));
   }
