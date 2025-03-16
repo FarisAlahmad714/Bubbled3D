@@ -5,7 +5,6 @@ import Scene from './components/Scene';
 import './App.css';
 import MultiTrackLooper from './components/MultiTrackLooper';
 import AdManager from './components/AdManager';
-import CameraBeamLight from './components/CameraBeamLight';
 import DebugUI from './components/DebugUI';
 import EnhancedBubblesTitle from './components/EnhancedBubblesTitle';
 import { AudioManagerProvider, useAudioManager } from './components/AudioManager';
@@ -534,14 +533,6 @@ function App() {
           onSpacecraftVisible={handleSpacecraftVisibility}
           onSetSpacecraftRefs={handleSetSpacecraftRefs} 
         />
-        <CameraBeamLight color="#aaddff" intensity={1.8} />
-        <ambientLight intensity={0.4} />
-        <directionalLight 
-          position={[-10, 10, -10]} 
-          intensity={0.8} 
-          castShadow 
-        />
-        <fog attach="fog" args={['#030318', 10, 50]} />
       </Canvas>
 
       <div style={controlsStyle}>

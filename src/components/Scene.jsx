@@ -525,7 +525,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
   return (
     <>
       <Planet
-        modelPath="/models/planet1.obj"
+        modelPath="/models/planet1.glb"
         visualMode={visualMode}
         scale={10}
         position={[0, 15, -70]}
