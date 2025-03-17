@@ -33,81 +33,17 @@ const createFlameTexture = () => {
   return texture;
 };
 
-// Create the Blue Planet with craters
-const createBluePlanet = () => {
-  // Create the base sphere for the planet
-  const planetGeometry = new THREE.SphereGeometry(15, 32, 32);
-  const planetMaterial = new THREE.MeshPhongMaterial({
-    color: 0x1a56e8, // Blue color
-    emissive: 0x112244,
-    specular: 0x2233aa,
-    shininess: 30,
-    flatShading: false
-  });
-  
-  const planet = new THREE.Mesh(planetGeometry, planetMaterial);
-  
-  // Add atmosphere glow
-  const atmosphereGeometry = new THREE.SphereGeometry(16, 32, 32);
-  const atmosphereMaterial = new THREE.MeshPhongMaterial({
-    color: 0x4499ff,
-    transparent: true,
-    opacity: 0.3,
-    side: THREE.BackSide
-  });
-  
-  const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-  planet.add(atmosphere);
-  
-  // Add craters
-  const addCrater = (x, y, z, size) => {
-    const craterGeometry = new THREE.CircleGeometry(size, 20);
-    const craterMaterial = new THREE.MeshPhongMaterial({
-      color: 0x1a3366,
-      emissive: 0x0a1a33,
-      side: THREE.DoubleSide
-    });
-    
-    const crater = new THREE.Mesh(craterGeometry, craterMaterial);
-    
-    // Position the crater on the surface of the sphere
-    const distance = 15.1; // Slightly above surface
-    crater.position.set(x, y, z).normalize().multiplyScalar(distance);
-    
-    // Make the crater face outward
-    crater.lookAt(0, 0, 0);
-    crater.rotateX(Math.PI);
-    
-    planet.add(crater);
-  };
-  
-  // Add multiple craters of different sizes
-  for (let i = 0; i < 15; i++) {
-    const phi = Math.acos((Math.random() * 2) - 1);
-    const theta = Math.random() * Math.PI * 2;
-    const x = Math.sin(phi) * Math.cos(theta);
-    const y = Math.sin(phi) * Math.sin(theta);
-    const z = Math.cos(phi);
-    const size = 0.5 + Math.random() * 2.5;
-    
-    addCrater(x, y, z, size);
-  }
-  
-  // Position the planet
-  planet.position.set(0, 10, -100); // Keep at a distance
-  planet.name = "blue_planet"; // Specific name to avoid conflicts
-  
-  return planet;
-};
 
 const AdSpaceship = forwardRef(function AdSpaceship({ 
   modelPath, 
   bannerUrl, 
   bannerLink = "https://example.com",
+  bannerTitle,
   speedFactor, 
   animationType, 
   positionOffset,
   thrusterPositions: customThrusterPositions,
+  onShowModal,
   debugMode = false
 }, ref) {
   const { qualityLevel, performanceMode } = usePerformance();
@@ -125,7 +61,16 @@ const AdSpaceship = forwardRef(function AdSpaceship({
   const exhaustCloudRef = useRef(); // Smoke/vapor trail
   const adBannerRef = useRef();
   const loadedTextures = useRef([]);
-  const bluePlanetRef = useRef();
+ 
+  
+  // Create a ref to hold the banner group for smooth rotation
+  const bannerGroupRef = useRef();
+  
+  // Store the current rotation values to interpolate between
+  const currentRotation = useRef({ x: 0, y: Math.PI, z: 0 });
+  
+  // Store the target rotation values
+  const targetRotation = useRef({ x: 0, y: Math.PI, z: 0 });
   
   // Interaction states
   const [hovered, setHovered] = useState(false);
@@ -133,9 +78,6 @@ const AdSpaceship = forwardRef(function AdSpaceship({
   const [bannerScale, setBannerScale] = useState(1);
   const [bannerRotation, setBannerRotation] = useState([0, 0, 0]);
   const [enginePower, setEnginePower] = useState(1);
-  
-  // Banner position stability
-  const [stableBannerPosition, setStableBannerPosition] = useState([0, 5, 0]);
   
   // Thruster positions - will be set after model loads
   const thrusterPositions = useRef([]);
@@ -171,27 +113,6 @@ const AdSpaceship = forwardRef(function AdSpaceship({
            modelPath.toLowerCase().endsWith('.glb');
   }, [modelPath]);
 
-  // Add blue planet to the scene
-  useEffect(() => {
-    if (scene) {
-      // Check if we already have a blue planet
-      const existingPlanet = scene.getObjectByName("blue_planet");
-      if (!existingPlanet) {
-        const planet = createBluePlanet();
-        scene.add(planet);
-        bluePlanetRef.current = planet;
-        console.log("Blue planet added to scene");
-      }
-    }
-    
-    // Cleanup when component unmounts
-    return () => {
-      if (bluePlanetRef.current && scene) {
-        scene.remove(bluePlanetRef.current);
-      }
-    };
-  }, [scene]);
-
   // Check if the pointer is over any of our objects
   const checkIntersection = () => {
     if (!spaceshipRef.current || !camera || !raycaster) return false;
@@ -206,12 +127,19 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     return intersects.length > 0;
   };
   
-  // Click handler for the banner ad
-  const handleAdClick = (e) => {
-    e.stopPropagation();
-    // Open the link in a new tab
-    window.open(bannerLink, '_blank');
-    console.log('Ad clicked:', bannerLink);
+  // Handle click on the spaceship - UPDATED to match Planet.jsx
+  const handleClick = () => {
+    if (hovered) {
+      console.log('Spaceship clicked, showing modal');
+      // Call the parent component's handler with ad info
+      if (onShowModal) {
+        onShowModal({
+          adImage: bannerUrl,
+          adLink: bannerLink,
+          adTitle: bannerTitle || 'Space Travel Offer'
+        });
+      }
+    }
   };
 
   useEffect(() => {
@@ -275,6 +203,23 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     };
   }, [modelPath, bannerUrl, positionOffset, qualityLevel, performanceMode, 
       useSimpleMaterials, particleCount, path, flameTexture, isGltf, customThrusterPositions]);
+
+  // Add click handler for the spaceship - UPDATED to match Planet.jsx
+  useEffect(() => {
+    const clickHandler = (event) => {
+      if (hovered) {
+        handleClick();
+        console.log('Global click handler fired when hovered, calling handleClick()');
+      }
+    };
+    
+    window.addEventListener('click', clickHandler);
+    
+    return () => {
+      window.removeEventListener('click', clickHandler);
+      document.body.style.cursor = 'auto';
+    };
+  }, [hovered]);
 
   // Function to load GLTF model
   const loadGltfModel = (loadingManager) => {
@@ -793,14 +738,7 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     }
   };
 
-  // Update the blue planet rotation
-  useFrame(({ clock }) => {
-    if (bluePlanetRef.current) {
-      bluePlanetRef.current.rotation.y += 0.0005;
-    }
-  });
-
-  // MODIFIED: Updated useFrame to fix ad visibility issues
+  // Add smooth banner rotation to the useFrame function
   useFrame(({ clock, camera }) => {
     if (!spaceshipRef.current || !pathRef.current) return;
 
@@ -813,6 +751,51 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     // This ensures it stays visible across cycles
     if (!adVisible && elapsed < flyByDuration) {
       setAdVisible(true);
+    }
+
+    // Update banner rotation smoothly if banner group exists
+    if (bannerGroupRef.current && camera) {
+      // Calculate the direction from banner to camera
+      const bannerPos = new THREE.Vector3();
+      bannerGroupRef.current.getWorldPosition(bannerPos);
+      
+      // Get the camera position on the same Y plane as the banner
+      // This restricts rotation to only horizontal movement
+      const cameraHorizontal = new THREE.Vector3(
+        camera.position.x,
+        bannerPos.y, // Keep y the same as the banner
+        camera.position.z
+      );
+      
+      // Create a temporary object to use lookAt for horizontal rotation only
+      const tempObj = new THREE.Object3D();
+      tempObj.position.copy(bannerPos);
+      tempObj.lookAt(cameraHorizontal);
+      
+      // Extract just the Y rotation (horizontal)
+      const yRotation = tempObj.rotation.y;
+      
+      // Update only the Y component of the target rotation
+      targetRotation.current = {
+        x: 0, // Keep X rotation fixed (no vertical tilting)
+        y: yRotation + Math.PI, // Add PI to keep it facing the camera
+        z: 0  // Keep Z rotation fixed
+      };
+      
+      // Smoothly interpolate current rotation to target rotation
+      // But only for the Y-axis
+      currentRotation.current = {
+        x: 0, // Fixed at 0
+        y: THREE.MathUtils.lerp(currentRotation.current.y, targetRotation.current.y, 0.1),
+        z: 0  // Fixed at 0
+      };
+      
+      // Apply the smoothed rotation (horizontal only)
+      bannerGroupRef.current.rotation.set(
+        currentRotation.current.x,
+        currentRotation.current.y,
+        currentRotation.current.z
+      );
     }
 
     if (elapsed < flyByDuration) {
@@ -839,13 +822,6 @@ const AdSpaceship = forwardRef(function AdSpaceship({
           setEnginePower(1.0); // Normal engine power
         }
       }
-
-      // REMOVED the banner position updating code entirely
-      // We no longer need to update the banner position separately
-      // since it's now a direct child of the spacecraft group and will move with it
-      
-      // We still update the engine effects
-
 
       // Update flame effects
       if (engineFlameRef.current && engineFlameRef.current.material) {
@@ -898,96 +874,192 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     getPosition: () => spaceshipRef.current ? spaceshipRef.current.position : new THREE.Vector3(0, 0, -1000),
   }));
 
-  // COMPLETELY REWORKED RETURN SECTION:
-  // Instead of using Html component as a sibling, we'll create a more rigid structure
-  return (
-    <group ref={spaceshipRef}>
-      {/* This is a fixed position banner directly attached to the spacecraft */}
-      <group position={[0, 8, 0]}>
-        {adVisible && (
-          <Html
-            ref={htmlBannerRef}
-            // Use a fixed local position relative to this group
-            position={[0, 0, 0]}
-            // Force the banner to always face the camera
-            rotation={[0, Math.PI, 0]} 
-            // This makes the HTML element stay exactly in the 3D position without trying to be clever
-            prepend
-            // Disable any transform adjustments - we want precise control
-            transform
-            // Important - this guarantees it moves exactly with the parent
-            center
-            // Keep distanceFactor smaller for tighter coupling
-            distanceFactor={7}
-            // Prevent any UI scaling behavior for stability
-            zIndexRange={[100, 10000]}
-            // Higher spring value to be more responsive
-            sprite={false}
-            style={{
-              width: '300px',
-              height: '150px',
-              color: 'white',
-              display: 'flex',
-              padding: 0,
-              margin: 0,
-              pointerEvents: 'auto',
-              userSelect: 'none',
-              // No transitions that could cause visual lag
-              transition: 'none',
-            }}
-            pointerEvents="auto"
-          >
-            <div 
-              onClick={handleAdClick}
-              style={{
-                width: '100%',
-                height: '100%',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'rgba(0, 20, 60, 0.8)',
-                backdropFilter: 'blur(5px)',
-                borderRadius: '10px',
-                padding: '10px 15px',
-                boxShadow: '0 0 20px rgba(80, 150, 255, 0.7)',
-                border: '1px solid rgba(100, 170, 255, 0.6)',
-                animation: 'pulse 2s infinite ease-in-out',
-                // Remove transform that could conflict with the rotation
-                // and use direct parent rotation instead
-              }}
-            >
-              <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>
-                Check Out Our Offer!
-              </div>
-              <div style={{ fontSize: '14px', maxWidth: '280px', textAlign: 'center' }}>
-                Click for exclusive deals on space travel
-              </div>
-              <div style={{ 
-                marginTop: '10px', 
-                padding: '5px 15px', 
-                background: 'rgba(30, 80, 200, 0.8)', 
-                borderRadius: '5px',
-                fontSize: '14px',
-                fontWeight: 'bold',
-                boxShadow: '0 0 10px rgba(50, 120, 255, 0.5)',
-              }}>
-                Learn More
-              </div>
-            </div>
-            <style>{`
-              @keyframes pulse {
-                0% { transform: scale(1); }
-                50% { transform: scale(1.05); }
-                100% { transform: scale(1); }
+  // UPDATED RETURN SECTION - Now matches Planet.jsx approach
+// This is the correct HTML banner section for AdSpaceship.jsx that preserves the clickable button
+
+// In the return() section of AdSpaceship.jsx, replace the current HTML banner with:
+
+return (
+  <group ref={spaceshipRef}>
+    {/* This is a fixed position banner directly attached to the spacecraft */}
+    <group position={[0, 8, -24]} ref={bannerGroupRef}>
+      {/* Tooltip that appears when hovering */}
+      {hovered && (
+        <Html position={[0, 3, 0]} center>
+          <div style={{
+            background: 'rgba(0, 0, 0, 0.7)',
+            color: 'white',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            pointerEvents: 'none',
+            transform: 'translateY(-30px)',
+            whiteSpace: 'nowrap'
+          }}>
+            Click For Special Offer
+          </div>
+        </Html>
+      )}
+      
+      {/* Clickable banner - keep pointerEvents: 'all' to make it directly clickable */}
+      {adVisible && (
+        <Html
+          ref={htmlBannerRef}
+          position={[0, 0, 0]}
+          transform
+          center
+          distanceFactor={7}
+          zIndexRange={[100, 10000]}
+          sprite={false}
+          style={{
+            width: '300px',
+            height: '150px',
+            color: 'white',
+            display: 'flex',
+            padding: 0,
+            margin: 0,
+            pointerEvents: 'all', // Keep as 'all' to make it clickable
+            userSelect: 'none',
+          }}
+          onClick={(e) => {
+            // Event handler on the Html component itself as a fallback
+            e.stopPropagation();
+          }}
+        >
+          <button 
+            onClick={(e) => {
+              // Stop event propagation and prevent default browser behavior
+              e.preventDefault();
+              e.stopPropagation();
+              
+              console.log('SPACESHIP BANNER BUTTON CLICKED!');
+              
+              // Call the onShowModal function with the ad info
+              if (typeof onShowModal === 'function') {
+                onShowModal({
+                  adImage: bannerUrl,
+                  adLink: bannerLink,
+                  adTitle: bannerTitle || 'Space Travel Offer'
+                });
+                console.log('Modal function called with:', {
+                  adImage: bannerUrl,
+                  adLink: bannerLink,
+                  adTitle: bannerTitle || 'Space Travel Offer'
+                });
+              } else {
+                console.error('onShowModal is not a function:', onShowModal);
+                // Only as absolute fallback
+                window.open(bannerLink, '_blank');
               }
-            `}</style>
-          </Html>
-        )}
-      </group>
+              
+              return false;
+            }}
+            style={{
+              width: '100%',
+              height: '100%',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(0, 20, 60, 0.8)',
+              backdropFilter: 'blur(5px)',
+              borderRadius: '10px',
+              padding: '10px 15px',
+              boxShadow: '0 0 20px rgba(80, 150, 255, 0.7)',
+              border: '1px solid rgba(100, 170, 255, 0.6)',
+              color: 'white',
+              fontFamily: 'Arial, sans-serif',
+              textAlign: 'center',
+            }}
+          >
+           <div style={{
+  position: 'relative',
+  width: '100%',
+  padding: '15px', // Added padding around all content
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'rgba(0, 20, 60, 0.8)', // Added/emphasized the background
+  backdropFilter: 'blur(5px)',
+  borderRadius: '10px',
+  boxShadow: '0 0 20px rgba(80, 150, 255, 0.7)',
+  border: '1px solid rgba(100, 170, 255, 0.6)',
+  minHeight: '280px', // Minimum height for the container
+}}>
+  {/* Image with increased size */}
+  <img 
+    src="/ads/ad4.png"
+    alt="Beatclub Offer" 
+    style={{
+      width: '100%', // Full width
+      minHeight: '160px', // Taller minimum height
+      maxHeight: '180px', // Increased maximum height
+      objectFit: 'contain',
+      borderRadius: '8px',
+      marginBottom: '12px' // More space below image
+    }}
+  />
+  
+  {/* Updated primary text with larger font */}
+  <div style={{
+    fontSize: '18px', // Larger font size
+    fontWeight: 'bold',
+    textAlign: 'center',
+    lineHeight: '1.3',
+    marginBottom: '8px', // More space below
+    textShadow: '0 1px 1px rgba(0,0,0,0.6)',
+    padding: '0 10px' // Add some horizontal padding
+  }}>
+    Level up your creativity with Beatclub!
+  </div>
+  
+  {/* Updated secondary text */}
+  <div style={{ 
+    fontSize: '15px', // Slightly larger
+    maxWidth: '300px', // Wider text container
+    textAlign: 'center',
+    opacity: 0.9,
+    marginBottom: '14px' // More space below
+  }}>
+    An all-in-one solution for music creators.
+  </div>
+  
+  {/* Call to action button - larger and more prominent */}
+  <div style={{ 
+    marginTop: '8px', 
+    padding: '8px 20px', // Larger padding for a bigger button
+    background: 'rgba(30, 80, 200, 0.8)', 
+    borderRadius: '6px',
+    fontSize: '16px', // Larger font
+    fontWeight: 'bold',
+    boxShadow: '0 0 15px rgba(50, 120, 255, 0.6)',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    border: '1px solid rgba(100, 170, 255, 0.4)'
+  }}>
+    Learn More
+  </div>
+</div>
+          </button>
+          
+          <style jsx>{`
+            button {
+              animation: pulse 2s infinite ease-in-out;
+            }
+            @keyframes pulse {
+              0% { transform: scale(1); }
+              50% { transform: scale(1.05); }
+              100% { transform: scale(1); }
+            }
+          `}</style>
+        </Html>
+      )}
     </group>
-  );
+  </group>
+);
 });
 
 export default AdSpaceship;

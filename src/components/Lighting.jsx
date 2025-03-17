@@ -1,18 +1,21 @@
 import * as THREE from 'three';
 import { useRef, useMemo, useEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { usePerformance } from './PerformanceOptimizer';
 
 // Planet position from the Planet component
-const PLANET_POSITION = new THREE.Vector3(0, 15, -150);
+const PLANET_POSITION = new THREE.Vector3(0, 15, -56);
 
 export default function Lighting({ soundIntensity = 0, orbColor = '#ffffff', visualMode = 'default' }) {
   const { performanceMode, qualityLevel } = usePerformance();
+  const { scene } = useThree(); // Properly get scene from React Three Fiber
   const pointLightRef = useRef();
   const directionalLightRef = useRef();
   const secondaryLightRef = useRef();
   const sunLightRef = useRef();
   const planetLightRef = useRef();
+  const depthLightRef = useRef(); // New light for depth illumination
+  const rimLightRef = useRef(); // New rim light for the planet
   const sunMeshRef = useRef();
   const sunGlowRef = useRef();
   const sunHaloRef = useRef();
@@ -22,75 +25,95 @@ export default function Lighting({ soundIntensity = 0, orbColor = '#ffffff', vis
     switch (performanceMode) {
       case 'low':
         return {
-          ambient: 0.4,
+          ambient: 0.5, // Increased ambient light for better visibility
           usePointLight: true,
           useHemisphere: false,
           useDirectional: true,
           usePlanetLight: true,
+          useDepthLight: true, // New depth light enabled
+          useRimLight: true, // New rim light enabled
           useSunLight: true,
           useSunGlow: true,
           sunSize: 15,
           sunDetail: 16,
-          pointLightDistance: 40,
-          pointLightIntensity: 0.8,
-          directionalIntensity: 1.0,
-          sunLightIntensity: 2.5,
-          planetLightIntensity: 3.0,
-          shadowMapSize: 512
+          pointLightDistance: 70, // Increased to reach further
+          pointLightIntensity: 1.0, // Increased intensity
+          directionalIntensity: 1.2,
+          sunLightIntensity: 3.0,
+          planetLightIntensity: 4.0, // Increased for better planet visibility
+          depthLightIntensity: 1.5, // New parameter
+          rimLightIntensity: 2.0, // New parameter
+          shadowMapSize: 512,
+          fogDensity: 0.005 // Lower value for better distance visibility
         };
       case 'medium':
         return {
-          ambient: 0.3,
+          ambient: 0.4, // Increased slightly
           usePointLight: true,
           useHemisphere: true,
           useDirectional: true,
           usePlanetLight: true,
+          useDepthLight: true, // New depth light enabled
+          useRimLight: true, // New rim light enabled
           useSunLight: true,
           useSunGlow: true,
           sunSize: 20,
           sunDetail: 24,
-          pointLightDistance: 50,
-          pointLightIntensity: 1.0,
-          directionalIntensity: 1.2,
-          sunLightIntensity: 3.0,
-          planetLightIntensity: 3.5,
-          shadowMapSize: 1024
+          pointLightDistance: 80, // Increased to reach further
+          pointLightIntensity: 1.2, // Increased intensity
+          directionalIntensity: 1.4,
+          sunLightIntensity: 3.5,
+          planetLightIntensity: 4.5, // Increased for better planet visibility
+          depthLightIntensity: 2.0, // New parameter
+          rimLightIntensity: 2.5, // New parameter
+          shadowMapSize: 1024,
+          fogDensity: 0.003 // Lower value for better distance visibility
         };
       case 'high':
         return {
-          ambient: 0.3,
+          ambient: 0.4, // Increased slightly
           usePointLight: true,
           useHemisphere: true,
           useDirectional: true,
           usePlanetLight: true,
+          useDepthLight: true, // New depth light enabled
+          useRimLight: true, // New rim light enabled
           useSunLight: true,
           useSunGlow: true,
           sunSize: 25,
           sunDetail: 32,
-          pointLightDistance: 60,
-          pointLightIntensity: 1.0,
-          directionalIntensity: 1.5,
-          sunLightIntensity: 3.5,
-          planetLightIntensity: 4.0,
-          shadowMapSize: 2048
+          pointLightDistance: 100, // Increased to reach further
+          pointLightIntensity: 1.5, // Increased intensity
+          directionalIntensity: 1.8,
+          sunLightIntensity: 4.0,
+          planetLightIntensity: 5.0, // Increased for better planet visibility
+          depthLightIntensity: 2.5, // New parameter
+          rimLightIntensity: 3.0, // New parameter
+          shadowMapSize: 2048,
+          fogDensity: 0.002 // Lower value for better distance visibility
         };
       default:
         return {
-          ambient: 0.3,
+          ambient: 0.4, // Increased slightly
           usePointLight: true,
           useHemisphere: true,
           useDirectional: true,
           usePlanetLight: true,
+          useDepthLight: true, // New depth light enabled
+          useRimLight: true, // New rim light enabled
           useSunLight: true,
           useSunGlow: true,
           sunSize: 20,
           sunDetail: 24,
-          pointLightDistance: 50,
-          pointLightIntensity: 1.0,
-          directionalIntensity: 1.2,
-          sunLightIntensity: 3.0,
-          planetLightIntensity: 3.5,
-          shadowMapSize: 1024
+          pointLightDistance: 80, // Increased to reach further
+          pointLightIntensity: 1.2, // Increased intensity
+          directionalIntensity: 1.4,
+          sunLightIntensity: 3.5,
+          planetLightIntensity: 4.5, // Increased for better planet visibility
+          depthLightIntensity: 2.0, // New parameter
+          rimLightIntensity: 2.5, // New parameter
+          shadowMapSize: 1024,
+          fogDensity: 0.003 // Lower value for better distance visibility
         };
     }
   }, [performanceMode]);
@@ -125,9 +148,13 @@ export default function Lighting({ soundIntensity = 0, orbColor = '#ffffff', vis
     }
   }, [visualMode]);
   
-  // REPOSITIONED SUN - much better angle for illuminating the planet
-  // Places sun to the side and in front so it lights the facing side of the planet
+  // Repositioned sun for better angle
   const sunPosition = useMemo(() => new THREE.Vector3(-100, 200, -50), []);
+  
+  // Calculate depth path midpoint between camera and planet
+  const depthMidpoint = useMemo(() => 
+    new THREE.Vector3(0, 10, -28), // Midpoint between origin (0,0,0) and planet (0,15,-56)
+  []);
   
   // Create sun texture for better performance
   const sunTexture = useMemo(() => {
@@ -156,6 +183,30 @@ export default function Lighting({ soundIntensity = 0, orbColor = '#ffffff', vis
     texture.needsUpdate = true;
     return texture;
   }, []);
+  
+  // Update scene fog based on visualMode (using useThree hook)
+  useEffect(() => {
+    if (scene) {
+      const fogColor = (() => {
+        switch (visualMode) {
+          case 'neon':
+            return new THREE.Color('#1a001a'); // Dark purple
+          case 'dream':
+            return new THREE.Color('#0a1a2a'); // Deep blue
+          case 'monochrome':
+            return new THREE.Color('#333333'); // Dark gray
+          default:
+            return new THREE.Color('#030318'); // Default dark blue
+        }
+      })();
+      
+      // Use exponential fog for more realistic space depth
+      scene.fog = new THREE.FogExp2(
+        fogColor, 
+        lightConfig.fogDensity
+      );
+    }
+  }, [visualMode, lightConfig.fogDensity, scene]);
   
   // Adjust colors based on visual mode
   useEffect(() => {
@@ -235,6 +286,46 @@ export default function Lighting({ soundIntensity = 0, orbColor = '#ffffff', vis
       // Add subtle movement to the planet light to simulate atmospheric scattering
       const pulseAmount = Math.sin(time * 0.5) * 0.1 + 1.0;
       planetLightRef.current.intensity = lightConfig.planetLightIntensity * pulseAmount * (1 + soundIntensity * 0.2);
+      
+      // Slightly animate the planet light position to create dynamic lighting
+      const offsetX = Math.sin(time * 0.2) * 5;
+      const offsetY = Math.cos(time * 0.3) * 3;
+      planetLightRef.current.position.set(
+        sunPosition.x * 0.5 + offsetX,
+        sunPosition.y * 0.5 + offsetY,
+        sunPosition.z * 0.5
+      );
+    }
+    
+    // Update new depth light
+    if (depthLightRef.current) {
+      // Subtle movement along the path to create interesting dynamic lighting
+      const pathOffset = Math.sin(time * 0.3) * 5;
+      depthLightRef.current.position.set(
+        depthMidpoint.x + pathOffset,
+        depthMidpoint.y + Math.cos(time * 0.2) * 3,
+        depthMidpoint.z + Math.sin(time * 0.4) * 5
+      );
+      
+      depthLightRef.current.intensity = lightConfig.depthLightIntensity * (1 + soundIntensity * 0.3);
+    }
+    
+    // Update rim light (creates highlight around the planet)
+    if (rimLightRef.current) {
+      // Position the rim light to create a pleasing backlight on the planet
+      const angle = time * 0.1;
+      const radius = 15; // Distance from the planet
+      rimLightRef.current.position.set(
+        PLANET_POSITION.x + Math.sin(angle) * radius,
+        PLANET_POSITION.y + 5,
+        PLANET_POSITION.z + Math.cos(angle) * radius
+      );
+      
+      // Look at the planet
+      rimLightRef.current.target.position.copy(PLANET_POSITION);
+      
+      // Adjust intensity based on sound
+      rimLightRef.current.intensity = lightConfig.rimLightIntensity * (1 + soundIntensity * 0.2);
     }
     
     // Animate sun glow
@@ -353,9 +444,9 @@ export default function Lighting({ soundIntensity = 0, orbColor = '#ffffff', vis
       {lightConfig.usePointLight && (
         <pointLight
           ref={pointLightRef}
-          position={[0, 2, -45]} 
+          position={[0, 2, -15]} // Moved forward to better illuminate the path
           distance={lightConfig.pointLightDistance}
-          decay={2}
+          decay={1.5} // Reduced decay for better reach
           castShadow={performanceMode === 'high'}
         />
       )}
@@ -365,7 +456,7 @@ export default function Lighting({ soundIntensity = 0, orbColor = '#ffffff', vis
         <hemisphereLight
           skyColor="#6688ff"
           groundColor="#000033"
-          intensity={0.3 * qualityLevel}
+          intensity={0.4 * qualityLevel} // Increased for better ambient lighting
         />
       )}
 
@@ -400,16 +491,16 @@ export default function Lighting({ soundIntensity = 0, orbColor = '#ffffff', vis
         />
       )}
 
-      {/* NEW SPOTLIGHT SPECIFICALLY FOR THE PLANET */}
+      {/* SPOTLIGHT SPECIFICALLY FOR THE PLANET */}
       {lightConfig.usePlanetLight && (
         <spotLight
           ref={planetLightRef}
           position={[sunPosition.x * 0.5, sunPosition.y * 0.5, sunPosition.z * 0.5]} // Position halfway between sun and origin
           intensity={lightConfig.planetLightIntensity}
-          angle={0.3}
-          penumbra={0.2}
-          distance={300}
-          decay={1.5}
+          angle={0.4} // Widened angle for better coverage
+          penumbra={0.3} // Increased penumbra for softer edges
+          distance={400} // Increased distance to ensure reach
+          decay={1.0} // Reduced decay for better reach
           color={sunColor.outer}
           target-position={PLANET_POSITION}
           castShadow={performanceMode !== 'low'}
@@ -420,14 +511,43 @@ export default function Lighting({ soundIntensity = 0, orbColor = '#ffffff', vis
         </spotLight>
       )}
 
+      {/* NEW LIGHT: PATH DEPTH LIGHT - illuminates the path between camera and planet */}
+      {lightConfig.useDepthLight && (
+        <pointLight
+          ref={depthLightRef}
+          position={depthMidpoint}
+          intensity={lightConfig.depthLightIntensity}
+          distance={80}
+          decay={1.0} // Low decay for better reach through space
+          color="#aabbff" // Subtle blue tint for space atmosphere
+        />
+      )}
+
+      {/* NEW LIGHT: RIM LIGHT FOR PLANET - creates a highlight around the planet */}
+      {lightConfig.useRimLight && (
+        <spotLight
+          ref={rimLightRef}
+          position={[PLANET_POSITION.x + 15, PLANET_POSITION.y + 5, PLANET_POSITION.z + 10]}
+          intensity={lightConfig.rimLightIntensity}
+          angle={0.5}
+          penumbra={0.4}
+          distance={50}
+          decay={1.5}
+          color="#ffffff" // Bright white rim light
+          castShadow={false} // No shadows from rim light
+        >
+          <object3D position={PLANET_POSITION} /> {/* Target for the spotlight */}
+        </spotLight>
+      )}
+
       {/* Secondary light for close-up objects */}
       {lightConfig.usePlanetLight && (
         <pointLight
           ref={secondaryLightRef}
           position={[0, 10, -7]}
-          intensity={1.0 * qualityLevel}
-          distance={30}
-          decay={2}
+          intensity={1.5 * qualityLevel} // Increased intensity
+          distance={40} // Increased distance
+          decay={1.5} // Reduced decay
           color="#ffffff"
         />
       )}

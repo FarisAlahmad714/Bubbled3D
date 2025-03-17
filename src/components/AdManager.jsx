@@ -4,7 +4,12 @@ import * as THREE from 'three';
 import AdSpaceship from './AdSpaceship';
 import { usePerformance } from './PerformanceOptimizer';
 
-export default function AdManager({ performanceSettings, onSpacecraftVisible, onSetSpacecraftRefs }) {
+export default function AdManager({ 
+  performanceSettings, 
+  onSpacecraftVisible, 
+  onSetSpacecraftRefs,
+  onShowAdModal // Make sure this prop is being received correctly
+}) {
   const { performanceMode } = usePerformance();
   
   // Updated with direct image paths - no planet creation, as that's handled by Scene.jsx
@@ -14,6 +19,7 @@ export default function AdManager({ performanceSettings, onSpacecraftVisible, on
       modelPath: '/models/starship.glb', 
       bannerUrl: '/ads/ad3.png', // Direct path to ad image
       bannerLink: "https://github.com/FarisAlahmad714/Bubbled3D", // URL to navigate to when clicked
+      bannerTitle: "Space Explorer Project", // Added title for the modal
       speedFactor: 1.0,
       animationType: 'none',
       positionOffset: [0, 0, 0],
@@ -70,6 +76,16 @@ export default function AdManager({ performanceSettings, onSpacecraftVisible, on
     
   }, [ads, maxAds, onSetSpacecraftRefs, performanceMode]);
 
+  // Create a wrapper for the modal handler to add logging
+  const handleShowModal = (adInfo) => {
+    console.log('AdManager: Showing modal with:', adInfo);
+    if (typeof onShowAdModal === 'function') {
+      onShowAdModal(adInfo);
+    } else {
+      console.error('AdManager: onShowAdModal is not a function or not provided!', onShowAdModal);
+    }
+  };
+
   // Optimized frame handler using fewer calculations
   useFrame(({ clock }) => {
     // Reduced cycle time for better performance
@@ -120,11 +136,13 @@ export default function AdManager({ performanceSettings, onSpacecraftVisible, on
             modelPath={ad.modelPath}
             bannerUrl={ad.bannerUrl}
             bannerLink={ad.bannerLink}
+            bannerTitle={ad.bannerTitle}
             speedFactor={ad.speedFactor}
             animationType={ad.animationType}
             positionOffset={ad.positionOffset}
             thrusterPositions={ad.thrusterPositions}
-            debugMode={true} // Enable debug mode to help with troubleshooting
+            onShowModal={handleShowModal} // Use our wrapper function instead
+            debugMode={false} // Disable debug mode for production
           />
         ))}
       </group>

@@ -1,1 +1,2 @@
 public/Sounds/*.wav filter=lfs diff=lfs merge=lfs -text
+public/models/rock.glb filter=lfs diff=lfs merge=lfs -text

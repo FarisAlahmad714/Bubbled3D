@@ -1,3 +1,4 @@
+//Scene.jsx
 import React, {
   useState,
   useRef,
@@ -64,7 +65,78 @@ const getFogColor = (visualMode) => {
   }
 };
 
-const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }, ref) {
+//Function to create the Blue Planet
+function createBluePlanet(scene, position = [-75, 10, -50], size = 18) {
+  // Create the base sphere for the planet
+  const planetGeometry = new THREE.SphereGeometry(size, 32, 32);
+  const planetMaterial = new THREE.MeshPhongMaterial({
+    color: 0x1a56e8, // Blue color
+    emissive: 0x112244,
+    specular: 0x2233aa,
+    shininess: 30,
+    flatShading: false
+  });
+  
+  const planet = new THREE.Mesh(planetGeometry, planetMaterial);
+  
+  // Add atmosphere glow
+  const atmosphereGeometry = new THREE.SphereGeometry(size * 1.07, 32, 32); // 7% larger than planet
+  const atmosphereMaterial = new THREE.MeshPhongMaterial({
+    color: 0x4499ff,
+    transparent: true,
+    opacity: 0.3,
+    side: THREE.BackSide
+  });
+  
+  const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+  planet.add(atmosphere);
+  
+  // Add craters
+  const addCrater = (x, y, z, craterSize) => {
+    const craterGeometry = new THREE.CircleGeometry(craterSize, 20);
+    const craterMaterial = new THREE.MeshPhongMaterial({
+      color: 0x1a3366, // Darker blue for craters
+      emissive: 0x0a1a33,
+      side: THREE.DoubleSide
+    });
+    
+    const crater = new THREE.Mesh(craterGeometry, craterMaterial);
+    
+    // Position the crater on the surface of the sphere
+    const distance = size * 1.01; // Slightly above surface
+    crater.position.set(x, y, z).normalize().multiplyScalar(distance);
+    
+    // Make the crater face outward
+    crater.lookAt(0, 0, 0);
+    crater.rotateX(Math.PI);
+    
+    planet.add(crater);
+  };
+  
+  // Add multiple craters of different sizes
+  for (let i = 0; i < 15; i++) {
+    const phi = Math.acos((Math.random() * 2) - 1);
+    const theta = Math.random() * Math.PI * 2;
+    const x = Math.sin(phi) * Math.cos(theta);
+    const y = Math.sin(phi) * Math.sin(theta);
+    const z = Math.cos(phi);
+    const craterSize = 0.5 + Math.random() * 2.5;
+    
+    addCrater(x, y, z, craterSize);
+  }
+  
+  // Position the planet
+  planet.position.set(position[0], position[1], position[2]);
+  planet.name = "blue_planet"; // Specific name to avoid conflicts
+  
+  // Add to scene
+  scene.add(planet);
+  
+  console.log("Blue planet added to scene at position:", planet.position);
+  return planet;
+}
+
+const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdModal, ...props }, ref) {
   const [spheres, setSpheres] = useState([]);
   const [rings, setRings] = useState([]);
   const [cameraMode, setCameraMode] = useState('orbit');
@@ -76,6 +148,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
   const activeSphereRef = useRef(null);
   const [orbColor, setOrbColor] = useState(new THREE.Color('#00FF66'));
   const freeControlsRef = useRef();
+  const bluePlanetRef = useRef(null);
   
   // Get audio manager from context
   const audioManager = useAudioManager();
@@ -140,6 +213,30 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
     }
   }, [audioManager.isReady]);
 
+  // Add the blue planet to the scene
+  useEffect(() => {
+    if (scene) {
+      // Check if we already have a blue planet
+      const existingPlanet = scene.getObjectByName("blue_planet");
+      if (!existingPlanet) {
+        // Position the blue planet far away from Jupiter at [0, 15, -56]
+        const bluePlanetPosition = [50, 35, -0];
+        const planet = createBluePlanet(scene, bluePlanetPosition, 18);
+        bluePlanetRef.current = planet;
+        console.log("Blue planet added to scene at position:", bluePlanetPosition);
+      } else {
+        bluePlanetRef.current = existingPlanet;
+      }
+    }
+    
+    // Cleanup when component unmounts
+    return () => {
+      if (bluePlanetRef.current && scene) {
+        scene.remove(bluePlanetRef.current);
+      }
+    };
+  }, [scene]);
+  
   const trackPositions = useRef({});
   const recordedEvents = useRef([]);
   const recordStart = useRef(0);
@@ -154,12 +251,21 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
   // Update scene fog based on visualMode
   useEffect(() => {
     console.log('Visual Mode updated in Scene:', visualMode);
-    scene.fog = new THREE.Fog(getFogColor(visualMode), 10, 50);
+    scene.fog = new THREE.Fog(
+      getFogColor(visualMode),
+      30,  // Start fog further away (was 10)
+      100  // Extend fog distance (was 50)
+    );
   }, [visualMode, scene]);
 
   useFrame(({ clock }, delta) => {
     const time = clock.getElapsedTime();
     const now = Date.now();
+
+    // Rotate the blue planet
+    if (bluePlanetRef.current) {
+      bluePlanetRef.current.rotation.y += 0.0005;
+    }
 
     if (now - lastActiveTime.current > cameraParams.current.autoSwitchDelay) {
       const modes = ['orbit', 'panorama', 'follow', 'free'];
@@ -525,10 +631,15 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, ...props }
   return (
     <>
       <Planet
-        modelPath="/models/planet1.glb"
+        modelPath="/models/planet3.glb"
         visualMode={visualMode}
         scale={10}
-        position={[0, 15, -70]}
+        position={[0, 15, -56]}
+        adImage="/ads/ad3.png"
+        adLink="https://example.com/planet-offer"
+        adTitle="Explore New Worlds"
+        ringTextContent="YOUR AD HERE!"
+        onShowModal={onShowAdModal} // Pass the modal handler to Planet
       />
       <Environment soundIntensity={soundIntensity.current} visualMode={visualMode} />
       {cameraMode === 'orbit' && (

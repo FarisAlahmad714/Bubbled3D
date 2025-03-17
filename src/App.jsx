@@ -8,6 +8,7 @@ import AdManager from './components/AdManager';
 import DebugUI from './components/DebugUI';
 import EnhancedBubblesTitle from './components/EnhancedBubblesTitle';
 import { AudioManagerProvider, useAudioManager } from './components/AudioManager';
+import AdModal from './components/AdModal'; // Import the new AdModal component
 
 // Performance preset configurations
 const PERFORMANCE_PRESETS = {
@@ -61,6 +62,9 @@ function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
   
+  // Add state for the ad modal
+  const [adModalInfo, setAdModalInfo] = useState(null);
+  
   // Access the AudioManager using our custom hook
   const audioManager = useAudioManager();
   
@@ -71,6 +75,16 @@ function App() {
   const lastFrameTimeRef = useRef(performance.now());
   const spacecraftRefsArray = useRef([]);
   const particleContainerRef = useRef(null);
+
+  // Handler to show the ad modal
+  const handleShowAdModal = (adInfo) => {
+    console.log("App.jsx: Modal handler called with:", adInfo);
+    setAdModalInfo(adInfo);
+  };
+  // Handler to close the ad modal
+  const handleCloseAdModal = () => {
+    setAdModalInfo(null);
+  };
 
   const handleSetSpacecraftRefs = (refs) => {
     spacecraftRefsArray.current = refs;
@@ -509,7 +523,7 @@ function App() {
   });
 
   return (
-    <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
       <Canvas 
         style={{ width: '100%', height: '100%' }} 
         dpr={Math.min(1.5, window.devicePixelRatio)}
@@ -527,13 +541,25 @@ function App() {
           visualMode={visualMode}
           performanceSettings={PERFORMANCE_PRESETS[performanceMode]}
           spacecraftRefs={spacecraftRefs}
+          onShowAdModal={handleShowAdModal} // Pass the ad modal handler to Scene
         />
         <AdManager 
-          performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
-          onSpacecraftVisible={handleSpacecraftVisibility}
-          onSetSpacecraftRefs={handleSetSpacecraftRefs} 
-        />
+  performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
+  onSpacecraftVisible={handleSpacecraftVisibility}
+  onSetSpacecraftRefs={handleSetSpacecraftRefs} 
+  onShowAdModal={handleShowAdModal} // FIXED - use the correct function name
+/>
       </Canvas>
+
+      {/* Ad Modal - Rendered outside the Canvas */}
+      {adModalInfo && (
+        <AdModal
+          onClose={handleCloseAdModal}
+          adImage={adModalInfo.adImage}
+          adLink={adModalInfo.adLink}
+          adTitle={adModalInfo.adTitle}
+        />
+      )}
 
       <div style={controlsStyle}>
         <div style={buttonGroupStyle}>
