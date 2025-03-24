@@ -419,7 +419,7 @@ function App() {
     const [dismissed, setDismissed] = useState(false);
     
     if (!isPhone || !isPortrait || dismissed) return null;
-    
+  
     return (
       <div className="portrait-message">
         <div style={{ fontSize: '24px', marginBottom: '1rem' }}>
