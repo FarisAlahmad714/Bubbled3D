@@ -20,20 +20,28 @@ export function AudioManagerProvider({ children }) {
   const bufferCache = useRef({});
   const howlCache = useRef({});
   const useFallbackAudio = useRef(false);
+  const formatFallbackCache = useRef({});
+  const audioUnlocked = useRef(false);
+  
+  // Performance optimization: Track audio format support to avoid unnecessary fallbacks
+  const audioFormatSupport = useRef({
+    wav: null,
+    mp3: null
+  });
+  
+  // Buffer cache size limits for performance
+  const MAX_BUFFER_CACHE_SIZE = 50;
+  const MAX_HOWL_CACHE_SIZE = 30;
   
   // Initialize audio system
   useEffect(() => {
     const initAudio = async () => {
       try {
-        console.log("Initializing AudioManager...");
-        
         // Create or get AudioContext
         if (Tone.context && Tone.context.state) {
           audioContext.current = Tone.context;
-          console.log("Using Tone's audio context");
         } else {
           audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
-          console.log("Created new AudioContext");
         }
         
         // Create main gain node
@@ -44,10 +52,11 @@ export function AudioManagerProvider({ children }) {
         recorderRef.current = new Tone.Recorder();
         Tone.Destination.connect(recorderRef.current);
         
-        console.log("Audio system initialized");
         setIsReady(true);
+        
+        // Test audio format support in background
+        checkFormatSupport();
       } catch (err) {
-        console.error("Failed to initialize audio system:", err);
         useFallbackAudio.current = true;
         
         // Try fallback initialization
@@ -55,11 +64,47 @@ export function AudioManagerProvider({ children }) {
           audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
           mainGainNode.current = audioContext.current.createGain();
           mainGainNode.current.connect(audioContext.current.destination);
-          console.log("Fallback audio system initialized");
           setIsReady(true);
         } catch (fallbackErr) {
-          console.error("Fallback audio initialization failed:", fallbackErr);
+          // Silently fail, will try HTML5 audio
         }
+      }
+    };
+    
+    // Performance optimization: Test format support once
+    const checkFormatSupport = async () => {
+      if (!audioContext.current) return;
+      
+      // Test MP3 support
+      try {
+        const mp3Test = await fetch('/Sounds/drum1.mp3');
+        if (mp3Test.ok) {
+          const mp3Buffer = await mp3Test.arrayBuffer();
+          try {
+            await audioContext.current.decodeAudioData(mp3Buffer);
+            audioFormatSupport.current.mp3 = true;
+          } catch (e) {
+            audioFormatSupport.current.mp3 = false;
+          }
+        }
+      } catch (err) {
+        audioFormatSupport.current.mp3 = false;
+      }
+      
+      // Test WAV support
+      try {
+        const wavTest = await fetch('/Sounds/drum1.wav');
+        if (wavTest.ok) {
+          const wavBuffer = await wavTest.arrayBuffer();
+          try {
+            await audioContext.current.decodeAudioData(wavBuffer);
+            audioFormatSupport.current.wav = true;
+          } catch (e) {
+            audioFormatSupport.current.wav = false;
+          }
+        }
+      } catch (err) {
+        audioFormatSupport.current.wav = false;
       }
     };
     
@@ -67,9 +112,10 @@ export function AudioManagerProvider({ children }) {
     
     // Cleanup
     return () => {
-      // Clean up audio resources
       Object.values(howlCache.current).forEach(howl => {
-        howl.unload();
+        if (howl && typeof howl.unload === 'function') {
+          howl.unload();
+        }
       });
       
       if (recorderRef.current) {
@@ -78,10 +124,60 @@ export function AudioManagerProvider({ children }) {
     };
   }, []);
   
-  // Load buffer from URL
+  // Auto-unlock audio on user interaction
+  useEffect(() => {
+    const unlockAudio = async () => {
+      if (audioUnlocked.current) return;
+      
+      try {
+        await forceResumeAudio();
+        audioUnlocked.current = true;
+      } catch (err) {
+        // Silent fail - will try again on next interaction
+      }
+    };
+    
+    // Add event listeners for common user interactions
+    const events = ['click', 'touchstart', 'keydown'];
+    events.forEach(event => window.addEventListener(event, unlockAudio, { once: true }));
+    
+    return () => {
+      events.forEach(event => window.removeEventListener(event, unlockAudio));
+    };
+  }, []);
+  
+  // More efficient alternative format selection using format support knowledge
+  const getAlternativeFormat = (url) => {
+    if (!url) return null;
+    
+    // Use format support knowledge if available
+    if (audioFormatSupport.current.wav !== null && audioFormatSupport.current.mp3 !== null) {
+      if (url.endsWith('.wav') && !audioFormatSupport.current.wav && audioFormatSupport.current.mp3) {
+        return url.replace('.wav', '.mp3');
+      } else if (url.endsWith('.mp3') && !audioFormatSupport.current.mp3 && audioFormatSupport.current.wav) {
+        return url.replace('.mp3', '.wav');
+      }
+    }
+    
+    // Default fallback logic
+    if (url.endsWith('.wav')) {
+      return url.replace('.wav', '.mp3');
+    } else if (url.endsWith('.mp3')) {
+      return url.replace('.mp3', '.wav');
+    }
+    return null;
+  };
+  
+  // Load buffer with optimized caching
   const loadBuffer = async (url) => {
     if (bufferCache.current[url]) {
       return bufferCache.current[url];
+    }
+    
+    // Check if we know this URL needs format fallback
+    const fallbackUrl = formatFallbackCache.current[url];
+    if (fallbackUrl) {
+      url = fallbackUrl;
     }
     
     try {
@@ -91,22 +187,81 @@ export function AudioManagerProvider({ children }) {
       const arrayBuffer = await response.arrayBuffer();
       const audioBuffer = await audioContext.current.decodeAudioData(arrayBuffer);
       
+      // Manage buffer cache size
+      const bufferCacheSize = Object.keys(bufferCache.current).length;
+      if (bufferCacheSize >= MAX_BUFFER_CACHE_SIZE) {
+        // Remove oldest items
+        const oldestKeys = Object.keys(bufferCache.current).slice(0, bufferCacheSize - MAX_BUFFER_CACHE_SIZE + 1);
+        oldestKeys.forEach(key => delete bufferCache.current[key]);
+      }
+      
       bufferCache.current[url] = audioBuffer;
       return audioBuffer;
     } catch (err) {
-      console.error(`Failed to load buffer for ${url}:`, err);
-      setBufferLoadErrors(prev => [...prev, { url, error: err.message }]);
-      throw err;
+      // Try alternative format
+      const altUrl = getAlternativeFormat(url);
+      if (altUrl) {
+        try {
+          const altResponse = await fetch(altUrl);
+          if (!altResponse.ok) throw new Error(`HTTP error: ${altResponse.status}`);
+          
+          const altArrayBuffer = await altResponse.arrayBuffer();
+          const altAudioBuffer = await audioContext.current.decodeAudioData(altArrayBuffer);
+          
+          // Cache the successful format for future reference
+          formatFallbackCache.current[url] = altUrl;
+          
+          // Manage buffer cache size
+          const bufferCacheSize = Object.keys(bufferCache.current).length;
+          if (bufferCacheSize >= MAX_BUFFER_CACHE_SIZE) {
+            // Remove oldest items
+            const oldestKeys = Object.keys(bufferCache.current).slice(0, bufferCacheSize - MAX_BUFFER_CACHE_SIZE + 1);
+            oldestKeys.forEach(key => delete bufferCache.current[key]);
+          }
+          
+          bufferCache.current[altUrl] = altAudioBuffer;
+          return altAudioBuffer;
+        } catch (altErr) {
+          // Both formats failed, record the error
+          setBufferLoadErrors(prev => [...prev, { url, error: `Both formats failed` }]);
+          throw new Error(`Audio loading failed for both ${url} and ${altUrl}`);
+        }
+      } else {
+        // No alternative format, record the original error
+        setBufferLoadErrors(prev => [...prev, { url, error: 'Decoding failed' }]);
+        throw err;
+      }
     }
   };
   
-  // Load multiple buffers and track progress
+  // Load multiple buffers with optimized progress tracking
   const loadBuffers = async (soundMap) => {
     const urls = [];
     
-    // Collect all unique URLs
+    // Collect unique URLs, preferring format by browser support
     Object.values(soundMap).forEach(soundData => {
       if (Array.isArray(soundData.src)) {
+        // If we know format support, prioritize the supported format
+        if (audioFormatSupport.current.wav !== null && audioFormatSupport.current.mp3 !== null) {
+          // Find the best format
+          let bestUrl = null;
+          
+          for (const url of soundData.src) {
+            if ((url.endsWith('.wav') && audioFormatSupport.current.wav) || 
+                (url.endsWith('.mp3') && audioFormatSupport.current.mp3)) {
+              bestUrl = url;
+              break;
+            }
+          }
+          
+          // If we found a preferred format, use only that
+          if (bestUrl && !urls.includes(bestUrl)) {
+            urls.push(bestUrl);
+            return;
+          }
+        }
+        
+        // Otherwise add all formats
         soundData.src.forEach(url => {
           if (!urls.includes(url)) urls.push(url);
         });
@@ -118,23 +273,28 @@ export function AudioManagerProvider({ children }) {
     let loaded = 0;
     const total = urls.length;
     
-    // Load each buffer
-    const loadPromises = urls.map(async (url) => {
-      try {
-        const buffer = await loadBuffer(url);
-        loaded++;
-        setLoadingProgress(Math.floor((loaded / total) * 100));
-        return { url, buffer };
-      } catch (err) {
-        loaded++;
-        setLoadingProgress(Math.floor((loaded / total) * 100));
-        console.error(`Error loading ${url}:`, err);
-        return { url, error: err };
-      }
-    });
+    // Performance optimization: Batch loading in groups of 5
+    const BATCH_SIZE = 5;
+    let results = [];
     
-    // Wait for all to complete
-    const results = await Promise.allSettled(loadPromises);
+    for (let i = 0; i < urls.length; i += BATCH_SIZE) {
+      const batch = urls.slice(i, i + BATCH_SIZE);
+      const batchPromises = batch.map(async (url) => {
+        try {
+          const buffer = await loadBuffer(url);
+          loaded++;
+          setLoadingProgress(Math.floor((loaded / total) * 100));
+          return { url, buffer };
+        } catch (err) {
+          loaded++;
+          setLoadingProgress(Math.floor((loaded / total) * 100));
+          return { url, error: err };
+        }
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      results = [...results, ...batchResults];
+    }
     
     // Attach buffers to the sound map
     Object.keys(soundMap).forEach(key => {
@@ -142,31 +302,60 @@ export function AudioManagerProvider({ children }) {
       const url = Array.isArray(soundData.src) ? soundData.src[0] : soundData.src;
       
       // Find the corresponding buffer
-      const result = results.find(r => r.value && r.value.url === url);
-      if (result && result.value && result.value.buffer) {
-        soundMap[key].buffer = result.value.buffer;
+      const result = results.find(r => r.url === url);
+      
+      // Also check for fallback format
+      const fallbackUrl = formatFallbackCache.current[url];
+      const fallbackResult = fallbackUrl ? 
+        results.find(r => r.url === fallbackUrl) : null;
+      
+      if (result && result.buffer) {
+        soundMap[key].buffer = result.buffer;
+      } else if (fallbackResult && fallbackResult.buffer) {
+        soundMap[key].buffer = fallbackResult.buffer;
       }
     });
     
     return soundMap;
   };
   
-  // Play a sound
+  // Play sound with optimized format selection
   const playSound = (key, soundMap, options = {}) => {
     if (!soundMap[key]) {
-      console.error(`No sound data for key: ${key}`);
       return null;
     }
     
     const { trackId, trackBus, volume = 1, pan = 0 } = options;
     
     try {
-      // Get the sound source
+      // Get the sound source with format optimization
       const soundSources = Array.isArray(soundMap[key].src) 
         ? soundMap[key].src 
         : [soundMap[key].src];
       
-      const selectedSound = soundSources[Math.floor(Math.random() * soundSources.length)];
+      // Prioritize format based on browser support
+      let selectedSound = null;
+      
+      if (audioFormatSupport.current.wav !== null && audioFormatSupport.current.mp3 !== null) {
+        // Find the best format
+        for (const src of soundSources) {
+          if ((src.endsWith('.wav') && audioFormatSupport.current.wav) || 
+              (src.endsWith('.mp3') && audioFormatSupport.current.mp3)) {
+            selectedSound = src;
+            break;
+          }
+        }
+      }
+      
+      // If no preferred format found, use first or random
+      if (!selectedSound) {
+        selectedSound = soundSources[Math.floor(Math.random() * soundSources.length)];
+      }
+      
+      // Check for known format fallback
+      if (formatFallbackCache.current[selectedSound]) {
+        selectedSound = formatFallbackCache.current[selectedSound];
+      }
       
       if (useFallbackAudio.current) {
         return playWithHowler(selectedSound, { volume, pan, trackId });
@@ -174,19 +363,27 @@ export function AudioManagerProvider({ children }) {
         return playWithTone(selectedSound, key, soundMap, { volume, pan, trackBus, trackId });
       }
     } catch (err) {
-      console.error(`Error playing sound ${key}:`, err);
-      return playWithHowler(soundMap[key].src, { volume, pan, trackId });
+      // Try alternative format
+      const soundSource = Array.isArray(soundMap[key].src) 
+        ? soundMap[key].src[0] 
+        : soundMap[key].src;
+      
+      const altUrl = getAlternativeFormat(soundSource);
+      if (altUrl) {
+        return playWithHowler(altUrl, { volume, pan, trackId });
+      } else {
+        return playWithHowler(soundSource, { volume, pan, trackId });
+      }
     }
   };
   
-  // Play with Tone.js
+  // Play with Tone.js - optimized
   const playWithTone = (url, key, soundMap, options) => {
     const { volume, pan, trackBus, trackId } = options;
     
     try {
-      // Use cached buffer if available
-      if (soundMap[key].buffer) {
-        console.log(`Using cached buffer for ${key}`);
+      // Use cached buffer if available for best performance
+      if (soundMap[key] && soundMap[key].buffer) {
         const source = audioContext.current.createBufferSource();
         source.buffer = soundMap[key].buffer;
         
@@ -204,7 +401,6 @@ export function AudioManagerProvider({ children }) {
         
         // Start playback
         source.start();
-        console.log(`Started playback for ${key} with buffer`);
         
         return source;
       } else {
@@ -213,8 +409,25 @@ export function AudioManagerProvider({ children }) {
           url,
           volume: Tone.gainToDb(volume),
           autostart: true,
-          onload: () => console.log(`Tone player loaded for ${key}`),
-          onerror: (err) => console.error(`Tone player error for ${key}:`, err)
+          onerror: (err) => {
+            // Try alternative format
+            const altUrl = getAlternativeFormat(url);
+            if (altUrl) {
+              const altPlayer = new Tone.Player({
+                url: altUrl,
+                volume: Tone.gainToDb(volume),
+                autostart: true
+              });
+              if (pan !== 0) {
+                const panner = new Tone.Panner(pan);
+                altPlayer.connect(panner);
+                panner.connect(trackBus || Tone.Destination);
+              } else {
+                altPlayer.connect(trackBus || Tone.Destination);
+              }
+              return altPlayer;
+            }
+          }
         });
         
         if (pan !== 0) {
@@ -225,18 +438,23 @@ export function AudioManagerProvider({ children }) {
           player.connect(trackBus || Tone.Destination);
         }
         
-        // Dispose after playback
+        // Dispose after playback to prevent memory leaks
         player.onstop = () => player.dispose();
         
         return player;
       }
     } catch (err) {
-      console.error(`Error with Tone playback for ${key}:`, err);
-      return playWithHowler(url, { volume, pan, trackId });
+      // Try alternative format
+      const altUrl = getAlternativeFormat(url);
+      if (altUrl) {
+        return playWithHowler(altUrl, { volume, pan, trackId });
+      } else {
+        return playWithHowler(url, { volume, pan, trackId });
+      }
     }
   };
   
-  // Play with Howler (fallback)
+  // Play with Howler - optimized
   const playWithHowler = (url, options) => {
     const { volume, pan, trackId } = options;
     
@@ -249,19 +467,45 @@ export function AudioManagerProvider({ children }) {
       return cachedHowl;
     }
     
-    // Create new Howl
+    // Check if we should try format fallback
+    if (formatFallbackCache.current[url]) {
+      url = formatFallbackCache.current[url];
+    }
+    
+    // Create new Howl with optimized settings
     const howl = new Howl({
       src: [url],
       volume,
       stereo: pan,
-      onload: () => console.log(`Howl loaded: ${url}`),
-      onloaderror: (id, err) => console.error(`Howl load error: ${url}`, err),
-      onplayerror: (id, err) => console.error(`Howl play error: ${url}`, err)
+      html5: true, // Better for mobile
+      preload: true, // Performance: preload to avoid stutter
+      onloaderror: (id, err) => {
+        // Try alternative format
+        const altUrl = getAlternativeFormat(url);
+        if (altUrl) {
+          const altHowl = new Howl({
+            src: [altUrl],
+            volume,
+            stereo: pan,
+            html5: true
+          });
+          
+          // Remember this format works better
+          if (altHowl.state() === 'loaded') {
+            formatFallbackCache.current[url] = altUrl;
+          }
+          
+          // Cache for future use
+          howlCache.current[altUrl] = altHowl;
+          altHowl.play();
+          return altHowl;
+        }
+      }
     });
     
     // Cache for future use (limit cache size)
     const cacheKeys = Object.keys(howlCache.current);
-    if (cacheKeys.length > 50) {
+    if (cacheKeys.length > MAX_HOWL_CACHE_SIZE) {
       // Remove oldest item from cache
       const oldestKey = cacheKeys[0];
       howlCache.current[oldestKey].unload();
@@ -275,38 +519,32 @@ export function AudioManagerProvider({ children }) {
   
   // Force resume all audio contexts
   const forceResumeAudio = async () => {
-    console.log("Attempting to force resume audio contexts...");
-    
     // Resume our main audio context
     if (audioContext.current && audioContext.current.state !== "running") {
       try {
-        console.log(`Resuming main AudioContext. Current state: ${audioContext.current.state}`);
         await audioContext.current.resume();
-        console.log(`Main AudioContext resumed. New state: ${audioContext.current.state}`);
+        audioUnlocked.current = true;
       } catch (err) {
-        console.error("Failed to resume main AudioContext:", err);
+        // Silent fail
       }
     }
     
     // Resume Tone.js context
     if (Tone && Tone.context && Tone.context.state !== "running") {
       try {
-        console.log(`Resuming Tone.js context. Current state: ${Tone.context.state}`);
         await Tone.context.resume();
-        console.log(`Tone.js context resumed. New state: ${Tone.context.state}`);
+        await Tone.start();
       } catch (err) {
-        console.error("Failed to resume Tone.js context:", err);
+        // Silent fail
       }
     }
     
     // Resume Howler.js context
     if (window.Howler && window.Howler.ctx && window.Howler.ctx.state !== "running") {
       try {
-        console.log(`Resuming Howler.js context. Current state: ${window.Howler.ctx.state}`);
         await window.Howler.ctx.resume();
-        console.log(`Howler.js context resumed. New state: ${window.Howler.ctx.state}`);
       } catch (err) {
-        console.error("Failed to resume Howler.js context:", err);
+        // Silent fail
       }
     }
     
@@ -316,7 +554,6 @@ export function AudioManagerProvider({ children }) {
   // Start recording the master output
   const startRecording = async () => {
     if (!recorderRef.current) {
-      console.error("Recorder not initialized");
       return false;
     }
     
@@ -324,10 +561,8 @@ export function AudioManagerProvider({ children }) {
     
     try {
       await recorderRef.current.start();
-      console.log("Recording started");
       return true;
     } catch (err) {
-      console.error("Failed to start recording:", err);
       return false;
     }
   };
@@ -335,40 +570,148 @@ export function AudioManagerProvider({ children }) {
   // Stop recording and return a blob URL
   const stopRecording = async () => {
     if (!recorderRef.current) {
-      console.error("Recorder not initialized");
       return null;
     }
     
     try {
       const recording = await recorderRef.current.stop();
-      console.log("Recording stopped, blob created:", recording);
       
       // Create a download URL
       const url = URL.createObjectURL(recording);
       return url;
     } catch (err) {
-      console.error("Failed to stop recording:", err);
       return null;
     }
+  };
+  
+  // Optimized one-shot sound playback
+  const playOneShot = (src, options = {}) => {
+    const { volume = 0.75, loop = false, onend = null, onload = null, onerror = null } = options;
+    
+    // First, try to unlock audio
+    forceResumeAudio().catch(() => {});
+    
+    // Try to determine if we should use an alternative format based on browser support
+    let actualSrc = src;
+    let alternativeSrc = null;
+    
+    // Use format detection if available
+    if (audioFormatSupport.current.wav !== null && audioFormatSupport.current.mp3 !== null) {
+      if (src.endsWith('.wav') && !audioFormatSupport.current.wav) {
+        actualSrc = src.replace('.wav', '.mp3');
+      } else if (src.endsWith('.mp3') && !audioFormatSupport.current.mp3) {
+        actualSrc = src.replace('.mp3', '.wav');
+      }
+    } else {
+      // Use known fallbacks
+      if (formatFallbackCache.current[src]) {
+        actualSrc = formatFallbackCache.current[src];
+      }
+      alternativeSrc = getAlternativeFormat(src);
+    }
+    
+    try {
+      // Create a new dedicated Howl instance for this one-shot
+      const sound = new Howl({
+        src: [actualSrc, alternativeSrc].filter(Boolean), // Include both formats when available
+        volume,
+        loop,
+        autoplay: true,
+        html5: true, // Better for mobile
+        onend,
+        onload,
+        onloaderror: (id, err) => {
+          if (alternativeSrc && actualSrc !== alternativeSrc) {
+            const altSound = new Howl({
+              src: [alternativeSrc],
+              volume,
+              loop,
+              autoplay: true,
+              html5: true,
+              onend,
+              onload: () => {
+                // Remember this format works better
+                formatFallbackCache.current[src] = alternativeSrc;
+                if (onload) onload();
+              }
+            });
+            
+            // Store reference for potential stopping
+            const soundId = `oneshot_alt_${Date.now()}`;
+            howlCache.current[soundId] = altSound;
+            
+            return altSound;
+          }
+          
+          if (onerror) onerror(err);
+        }
+      });
+      
+      // Store reference for potential stopping
+      const soundId = `oneshot_${Date.now()}`;
+      howlCache.current[soundId] = sound;
+      
+      return sound;
+    } catch (err) {
+      // Last resort fallback
+      if (alternativeSrc && actualSrc !== alternativeSrc) {
+        try {
+          const altSound = new Howl({
+            src: [alternativeSrc],
+            volume,
+            loop,
+            autoplay: true,
+            html5: true,
+            onend
+          });
+          return altSound;
+        } catch (altErr) {
+          return null;
+        }
+      }
+      
+      return null;
+    }
+  };
+  
+  // Stop a specific sound
+  const stopSound = (src) => {
+    // First try to find exact match in howlCache
+    if (howlCache.current[src]) {
+      howlCache.current[src].stop();
+      return true;
+    }
+    
+    // If not found by exact key, try to find by src url
+    for (const key in howlCache.current) {
+      const howl = howlCache.current[key];
+      if (howl._src && (
+        howl._src.includes(src) || 
+        (getAlternativeFormat(src) && howl._src.includes(getAlternativeFormat(src)))
+      )) {
+        howl.stop();
+        return true;
+      }
+    }
+    
+    return false;
   };
   
   // Export a mix of tracks to WAV
   const exportToWav = async (tracks, soundMap, options = {}) => {
     const {
-      durationSeconds = 120,  // 2 minutes by default
+      durationSeconds = 120,
       sampleRate = 44100,
       masterVolume = 0,
       onProgress
     } = options;
-    
-    console.log(`Starting WAV export: ${durationSeconds}s at ${sampleRate}Hz`);
     
     // Create offline context for rendering
     const offlineContext = new OfflineAudioContext(2, durationSeconds * sampleRate, sampleRate);
     
     // Create master gain node
     const masterGain = offlineContext.createGain();
-    masterGain.gain.value = Math.pow(10, masterVolume / 20); // Convert dB to gain
+    masterGain.gain.value = Math.pow(10, masterVolume / 20);
     masterGain.connect(offlineContext.destination);
     
     // First, ensure all buffers are loaded
@@ -387,7 +730,7 @@ export function AudioManagerProvider({ children }) {
     });
     
     // Update progress
-    if (onProgress) onProgress(5); // 5% - Starting buffer loading
+    if (onProgress) onProgress(5);
     
     // Load all needed buffers to offline context
     for (const key of trackKeys) {
@@ -397,11 +740,9 @@ export function AudioManagerProvider({ children }) {
       
       if (soundMap[key].buffer) {
         // Use preloaded buffer
-        console.log(`Using preloaded buffer for ${key}: ${soundSource}`);
         bufferPromises.push(Promise.resolve({ key, buffer: soundMap[key].buffer }));
       } else {
-        // Load buffer
-        console.log(`Loading buffer for ${key}: ${soundSource}`);
+        // Load buffer with optimized error handling
         const promise = fetch(soundSource)
           .then(response => {
             if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
@@ -410,7 +751,23 @@ export function AudioManagerProvider({ children }) {
           .then(arrayBuffer => offlineContext.decodeAudioData(arrayBuffer))
           .then(audioBuffer => ({ key, buffer: audioBuffer }))
           .catch(err => {
-            console.error(`Failed to load buffer for ${key}:`, err);
+            // Try alternative format
+            if (soundSource.endsWith('.wav')) {
+              const altSource = soundSource.replace('.wav', '.mp3');
+              return fetch(altSource)
+                .then(response => response.arrayBuffer())
+                .then(arrayBuffer => offlineContext.decodeAudioData(arrayBuffer))
+                .then(audioBuffer => ({ key, buffer: audioBuffer }))
+                .catch(altErr => ({ key, error: err }));
+            } else if (soundSource.endsWith('.mp3')) {
+              const altSource = soundSource.replace('.mp3', '.wav');
+              return fetch(altSource)
+                .then(response => response.arrayBuffer())
+                .then(arrayBuffer => offlineContext.decodeAudioData(arrayBuffer))
+                .then(audioBuffer => ({ key, buffer: audioBuffer }))
+                .catch(altErr => ({ key, error: err }));
+            }
+            
             return { key, error: err };
           });
         
@@ -429,9 +786,7 @@ export function AudioManagerProvider({ children }) {
     });
     
     // Update progress
-    if (onProgress) onProgress(30); // 30% - Buffers loaded
-    
-    console.log(`Loaded ${Object.keys(buffers).length} buffers for rendering`);
+    if (onProgress) onProgress(30);
     
     // Schedule track events
     let eventsScheduled = 0;
@@ -446,76 +801,60 @@ export function AudioManagerProvider({ children }) {
       return !isMuted && (!anySoloed || isSoloed);
     });
     
-    console.log(`Scheduling ${activeTracks.length} active tracks for rendering`);
-    
-    activeTracks.forEach(track => {
-      // Create track-level processing nodes
-      const trackGain = offlineContext.createGain();
-      trackGain.gain.value = Math.pow(10, (track.volume || 0) / 20);
+    // Processing tracks in batches for better memory efficiency
+    const TRACK_BATCH_SIZE = 3;
+    for (let i = 0; i < activeTracks.length; i += TRACK_BATCH_SIZE) {
+      const trackBatch = activeTracks.slice(i, i + TRACK_BATCH_SIZE);
       
-      const panner = offlineContext.createStereoPanner();
-      panner.pan.value = track.pan || 0;
-      
-      trackGain.connect(panner);
-      panner.connect(masterGain);
-      
-      // Get playable events
-      const playableEvents = track.events.filter(ev => !ev.isMarker && buffers[ev.key]);
-      const loopDuration = track.totalDuration / 1000;
-      
-      if (loopDuration <= 0 || playableEvents.length === 0) {
-        console.warn(`Skipping track ${track.id}: Invalid duration or no playable events`);
-        return;
-      }
-      
-      console.log(`Track ${track.id}: ${playableEvents.length} events, loop duration ${loopDuration}s`);
-      
-      // Calculate number of loops to fill the duration
-      const loopCount = Math.ceil(durationSeconds / loopDuration);
-      
-      // Schedule each event for each loop iteration
-      for (let i = 0; i < loopCount; i++) {
-        playableEvents.forEach(event => {
-          const time = (i * loopDuration) + (event.offset / 1000);
-          if (time >= durationSeconds) return;
-          
-          const source = offlineContext.createBufferSource();
-          source.buffer = buffers[event.key];
-          source.connect(trackGain);
-          source.start(time);
-          eventsScheduled++;
-          
-          if (eventsScheduled % 50 === 0) {
-            console.log(`Scheduled ${eventsScheduled} events so far`);
-          }
-        });
-      }
-    });
+      trackBatch.forEach(track => {
+        // Create track-level processing nodes
+        const trackGain = offlineContext.createGain();
+        trackGain.gain.value = Math.pow(10, (track.volume || 0) / 20);
+        
+        const panner = offlineContext.createStereoPanner();
+        panner.pan.value = track.pan || 0;
+        
+        trackGain.connect(panner);
+        panner.connect(masterGain);
+        
+        // Get playable events
+        const playableEvents = track.events.filter(ev => !ev.isMarker && buffers[ev.key]);
+        const loopDuration = track.totalDuration / 1000;
+        
+        if (loopDuration <= 0 || playableEvents.length === 0) {
+          return;
+        }
+        
+        // Calculate number of loops to fill the duration
+        const loopCount = Math.ceil(durationSeconds / loopDuration);
+        
+        // Schedule each event for each loop iteration
+        for (let i = 0; i < loopCount; i++) {
+          playableEvents.forEach(event => {
+            const time = (i * loopDuration) + (event.offset / 1000);
+            if (time >= durationSeconds) return;
+            
+            const source = offlineContext.createBufferSource();
+            source.buffer = buffers[event.key];
+            source.connect(trackGain);
+            source.start(time);
+            eventsScheduled++;
+          });
+        }
+      });
+    }
     
     // Update progress
-    if (onProgress) onProgress(50); // 50% - Events scheduled
-    
-    console.log(`Total of ${eventsScheduled} events scheduled. Starting rendering...`);
+    if (onProgress) onProgress(50);
     
     // Start rendering
     let renderedBuffer;
     try {
       renderedBuffer = await offlineContext.startRendering();
-      console.log('Rendering complete. Buffer duration:', renderedBuffer.duration);
-      
-      // Check if the buffer has any audio content
-      const channelData = renderedBuffer.getChannelData(0);
-      const hasAudio = channelData.some(sample => Math.abs(sample) > 0.001);
-      console.log('Buffer has audio:', hasAudio);
-      
-      if (!hasAudio) {
-        console.warn('Warning: Rendered buffer contains no audio!');
-      }
       
       // Update progress
-      if (onProgress) onProgress(80); // 80% - Rendering complete
+      if (onProgress) onProgress(80);
     } catch (err) {
-      console.error('Rendering failed:', err);
       throw err;
     }
     
@@ -524,7 +863,7 @@ export function AudioManagerProvider({ children }) {
     const url = URL.createObjectURL(wavBlob);
     
     // Update progress
-    if (onProgress) onProgress(100); // 100% - Export complete
+    if (onProgress) onProgress(100);
     
     return {
       url,
@@ -577,65 +916,6 @@ export function AudioManagerProvider({ children }) {
     return new Blob([arrayBuffer], { type: 'audio/wav' });
   }
   
-  // New method for welcome audio: Play a one-shot sound that isn't part of the key data
-  const playOneShot = (src, options = {}) => {
-    const { volume = 0.75, loop = false, onend = null, onload = null, onerror = null } = options;
-    
-    console.log(`Playing one-shot sound: ${src}`);
-    
-    if (useFallbackAudio.current) {
-      return playWithHowler(src, { volume, pan: 0, trackId: 'oneshot' });
-    }
-    
-    try {
-      // Create a new dedicated Howl instance for this one-shot
-      const sound = new Howl({
-        src: [src],
-        volume,
-        loop,
-        autoplay: true,
-        onend,
-        onload,
-        onloaderror: (id, err) => {
-          console.error(`Failed to load one-shot audio: ${src}`, err);
-          if (onerror) onerror(err);
-        }
-      });
-      
-      // Store reference for potential stopping
-      const soundId = `oneshot_${Date.now()}`;
-      howlCache.current[soundId] = sound;
-      
-      return sound;
-    } catch (err) {
-      console.error(`Error playing one-shot sound ${src}:`, err);
-      return null;
-    }
-  };
-  
-  // New method for welcome audio: Stop a specific sound by src/id
-  const stopSound = (src) => {
-    // First try to find exact match in howlCache
-    if (howlCache.current[src]) {
-      console.log(`Stopping sound with exact match: ${src}`);
-      howlCache.current[src].stop();
-      return true;
-    }
-    
-    // If not found by exact key, try to find by src url
-    for (const key in howlCache.current) {
-      const howl = howlCache.current[key];
-      if (howl._src && howl._src.includes(src)) {
-        console.log(`Stopping sound by source match: ${src}`);
-        howl.stop();
-        return true;
-      }
-    }
-    
-    console.log(`Could not find sound to stop: ${src}`);
-    return false;
-  };
-  
   // Context value for the provider
   const value = {
     isReady,
@@ -650,6 +930,7 @@ export function AudioManagerProvider({ children }) {
     stopRecording,
     exportToWav,
     useFallbackAudio: useFallbackAudio.current,
+    audioUnlocked: audioUnlocked.current,
     // Add the new methods for welcome audio
     playOneShot,
     stopSound

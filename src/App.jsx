@@ -9,9 +9,8 @@ import DebugUI from './components/DebugUI';
 import EnhancedBubblesTitle from './components/EnhancedBubblesTitle';
 import { AudioManagerProvider, useAudioManager } from './components/AudioManager';
 import AdModal from './components/AdModal'; 
-import GuidedTour from './components/GuidedTour'; // Import the new GuidedTour component
+import GuidedTour from './components/GuidedTour';
 import SubtitledWelcomeText from './components/SubtitledWelcomeText';
-
 
 // Performance preset configurations
 const PERFORMANCE_PRESETS = {
@@ -64,8 +63,13 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
-  // New state for welcome audio
+  
+  // Welcome audio states
   const [welcomeAudioPlayed, setWelcomeAudioPlayed] = useState(false);
+  const [showSubtitles, setShowSubtitles] = useState(false);
+  const welcomeAudioRef = useRef(null);
+  const welcomeAudioScheduled = useRef(false);
+  const userInteractionReceived = useRef(false);
   
   // Add state for the guided tour
   const [showTour, setShowTour] = useState(false);
@@ -97,23 +101,6 @@ function App() {
     }
   }, [entered]);
   
-  // Play welcome audio when loading is complete
-  useEffect(() => {
-    // Only play welcome audio if loading is complete, we haven't entered the main experience,
-    // and we haven't played it yet
-    if (!isLoading && !entered && !welcomeAudioPlayed && audioManager.isReady) {
-      console.log('Playing welcome audio with synchronized subtitles...');
-      
-      // Play welcome audio using AudioManager
-      audioManager.playOneShot('/Sounds/welcome.mp3', { 
-        volume: 0.75,
-        onend: () => setWelcomeAudioPlayed(true)
-      });
-      
-      // Mark as played so it doesn't repeat
-      setWelcomeAudioPlayed(true);
-    }
-  }, [isLoading, entered, welcomeAudioPlayed, audioManager.isReady]);
   // Handler to complete the tour
   const handleTourComplete = () => {
     console.log('Tour completion handler called');
@@ -312,17 +299,38 @@ function App() {
     }
   };
 
+  // Updated enter button handler to properly handle welcome audio
   async function handleEnterClick() {
-    // Stop welcome audio if it's still playing
-    if (audioManager.stopSound) {
-      audioManager.stopSound('/sounds/welcome.mp3');
+    // Properly stop welcome audio - FIXED: using pause() instead of stop()
+    if (welcomeAudioRef.current) {
+      console.log('Stopping welcome audio due to enter click');
+      // For HTML5 Audio element, use pause() not stop()
+      if (welcomeAudioRef.current.pause) {
+        welcomeAudioRef.current.pause();
+      } else if (welcomeAudioRef.current.stop) {
+        welcomeAudioRef.current.stop();
+      }
+      welcomeAudioRef.current = null;
+    } else if (audioManager.stopSound) {
+      audioManager.stopSound('/Sounds/welcome.mp3');
     }
     
-    // Initialize audio context
+    // Make sure we won't play welcome audio after this
+    setWelcomeAudioPlayed(true);
+    
+    // Initialize audio context for the main experience
     try {
-      await audioManager.forceResumeAudio();
-      console.log('Audio context resumed successfully!');
-      setEntered(true);
+      const success = await audioManager.forceResumeAudio();
+      if (success) {
+        console.log('Audio context resumed successfully on enter!');
+        // Wait a moment to ensure audio context is fully active
+        setTimeout(() => {
+          setEntered(true);
+        }, 100);
+      } else {
+        console.warn('Audio context resume returned false, trying anyway');
+        setEntered(true);
+      }
     } catch (error) {
       console.error('Error initializing audio:', error);
       // Fallback to traditional method if our AudioManager fails
@@ -401,7 +409,7 @@ function App() {
       </div>
       <div className="loading-text">
         Loading Experience... {Math.floor(loadingProgress)}%
-        {audioManager.bufferLoadErrors.length > 0 && (
+        {audioManager.bufferLoadErrors?.length > 0 && (
           <div className="loading-errors">
             Some audio resources could not be loaded. Sounds may be limited.
           </div>
@@ -430,19 +438,55 @@ function App() {
             {/* Enhanced artistic title that won't reset */}
             <EnhancedBubblesTitle />
             
-            {/* Welcome text with subtitles */}
+            {/* Welcome text with subtitles - only shown when showSubtitles is true */}
             <div className="welcome-container">
-              <SubtitledWelcomeText duration={21} />
-              
+              {showSubtitles && <SubtitledWelcomeText duration={21} />}
             </div>
-              <div className="enter-button-container">
+              
+            <div className="enter-button-container" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              {!welcomeAudioPlayed && (
                 <button 
-                  className="enter-button" 
-                  onClick={handleEnterClick}
+                  className="play-audio-button" 
+                  onClick={() => {
+                    // Direct play with HTML5 Audio - simpler approach
+                    const audio = new Audio('/Sounds/welcome.mp3');
+                    audio.volume = 0.75;
+                    audio.onended = () => {
+                      console.log('Welcome audio finished playing');
+                    };
+                    audio.play().then(() => {
+                      // Set welcomeAudioRef for potential stopping later
+                      welcomeAudioRef.current = audio;
+                      // Mark as played
+                      setWelcomeAudioPlayed(true);
+                      // Show subtitles synchronized with audio
+                      setShowSubtitles(true);
+                    }).catch(err => {
+                      console.error('Could not play audio:', err);
+                    });
+                  }}
+                  style={{
+                    background: 'rgba(80, 120, 255, 0.6)',
+                    border: '1px solid rgba(100, 150, 255, 0.8)',
+                    borderRadius: '30px',
+                    color: 'white',
+                    padding: '12px 24px',
+                    fontSize: '1rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 0 15px rgba(80, 120, 255, 0.4)',
+                    transition: 'all 0.3s ease'
+                  }}
                 >
-                  Begin Journey
+                  Play Introduction Audio
                 </button>
-              </div>          
+              )}
+              <button 
+                className="enter-button" 
+                onClick={handleEnterClick}
+              >
+                Begin Journey
+              </button>
+            </div>          
           </>
         )}
       </div>
@@ -647,13 +691,14 @@ function App() {
               style={{
                 accentColor: 'rgba(80, 120, 220, 0.8)'
               }}
+              data-tour-target="camera-speed"
             />
           </div>
           
           <button 
             onClick={handleCameraModeToggle}
             style={cameraMode === 'orbit' ? activeButtonStyle : buttonStyle}
-            
+            data-tour-target="camera-mode"
           >
             Camera: {cameraMode.charAt(0).toUpperCase() + cameraMode.slice(1)}
           </button>
@@ -661,7 +706,7 @@ function App() {
           <button 
             onClick={handleVisualModeToggle}
             style={buttonStyle}
-          
+            data-tour-target="visual-mode"
           >
             Visual: {visualMode.charAt(0).toUpperCase() + visualMode.slice(1)}
           </button>
@@ -702,6 +747,7 @@ function App() {
         style={performanceButtonStyle} 
         onClick={togglePerformancePopup}
         title="Performance Settings"
+        data-tour-target="performance"
       >
         ⚙️
       </div>
