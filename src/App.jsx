@@ -1030,7 +1030,7 @@ function App() {
       )}
   
       <MultiTrackLooper sceneRef={sceneRef} ref={looperRef} />
-      <DebugUI sceneRef={sceneRef} spacecraftRefs={spacecraftRefsArray.current} />
+     {/*<DebugUI sceneRef={sceneRef} spacecraftRefs={spacecraftRefsArray.current} />*/}
       
       {/* Mobile Controls - Only shown on mobile/touch devices */}
       {(deviceInfo.isMobile || deviceInfo.hasTouch) && (
