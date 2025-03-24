@@ -3,14 +3,18 @@ import { Canvas } from '@react-three/fiber';
 import { Howler } from 'howler';
 import Scene from './components/Scene';
 import './App.css';
+import './MobileStyles.css'; // Import mobile-specific styles
 import MultiTrackLooper from './components/MultiTrackLooper';
 import AdManager from './components/AdManager';
-import DebugUI from './components/DebugUI';
+//import DebugUI from './components/DebugUI';
 import EnhancedBubblesTitle from './components/EnhancedBubblesTitle';
 import { AudioManagerProvider, useAudioManager } from './components/AudioManager';
 import AdModal from './components/AdModal'; 
 import GuidedTour from './components/GuidedTour';
 import SubtitledWelcomeText from './components/SubtitledWelcomeText';
+import MobileControls from './components/MobileControls';
+import TouchControls from './components/TouchControls';
+import { detectMobileDevice } from './utils/DeviceDetector';
 
 // Performance preset configurations
 const PERFORMANCE_PRESETS = {
@@ -71,6 +75,9 @@ function App() {
   const welcomeAudioScheduled = useRef(false);
   const userInteractionReceived = useRef(false);
   
+  // Mobile-specific states
+  const [deviceInfo, setDeviceInfo] = useState(() => detectMobileDevice());
+  
   // Add state for the guided tour
   const [showTour, setShowTour] = useState(false);
   
@@ -82,11 +89,35 @@ function App() {
   
   const sceneRef = useRef(null);
   const looperRef = useRef(null);
+  const canvasContainerRef = useRef(null);
   const controlsTimeoutRef = useRef(null);
   const frameCountRef = useRef(0);
   const lastFrameTimeRef = useRef(performance.now());
   const spacecraftRefsArray = useRef([]);
   const particleContainerRef = useRef(null);
+
+  // Update device info on resize
+  useEffect(() => {
+    const handleResize = () => {
+      setDeviceInfo(detectMobileDevice());
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  // Handle sound triggering from mobile UI
+  const handleMobileSoundTrigger = (key) => {
+    // First try direct Scene access
+    if (sceneRef.current?.createSphereAndPlaySound) {
+      sceneRef.current.createSphereAndPlaySound(key);
+    }
+    
+    // Also send to the looper if recording
+    if (looperRef.current?.recordKeyPress) {
+      looperRef.current.recordKeyPress(key);
+    }
+  };
 
   // Check if user has seen the guided tour before
   useEffect(() => {
@@ -100,6 +131,43 @@ function App() {
       // setShowTour(!hasCompletedTour);
     }
   }, [entered]);
+  
+  // Updated welcome audio logic - Fixed to prevent double playing
+  useEffect(() => {
+    // Only set up welcome audio if we're on the landing page
+    if (!entered && !welcomeAudioPlayed && !welcomeAudioScheduled.current) {
+      welcomeAudioScheduled.current = true;
+      
+      // Setup a one-time event handler for first user interaction
+      const playOnInteraction = () => {
+        if (!welcomeAudioPlayed && !userInteractionReceived.current) {
+          userInteractionReceived.current = true;
+          
+          // Set welcomeAudioPlayed to true FIRST to prevent double play
+          setWelcomeAudioPlayed(true);
+          
+          console.log('Playing welcome audio after user interaction');
+          welcomeAudioRef.current = audioManager.playOneShot('/Sounds/welcome.mp3', { 
+            volume: 0.75,
+            onend: () => console.log('Welcome audio finished playing'),
+            onerror: (err) => console.error('Welcome audio error:', err)
+          });
+          
+          // Remove all event listeners after first interaction
+          events.forEach(event => window.removeEventListener(event, playOnInteraction));
+        }
+      };
+      
+      // Listen for ANY interaction to play welcome audio
+      const events = ['click', 'touchstart', 'keydown', 'pointerdown', 'mousedown'];
+      events.forEach(event => window.addEventListener(event, playOnInteraction, { once: true }));
+      
+      // Clean up event listeners
+      return () => {
+        events.forEach(event => window.removeEventListener(event, playOnInteraction));
+      };
+    }
+  }, [audioManager, entered, welcomeAudioPlayed]);
   
   // Handler to complete the tour
   const handleTourComplete = () => {
@@ -345,6 +413,38 @@ function App() {
       }
     }
   }
+
+  // Portrait mode warning component
+  const PortraitModeWarning = ({ isPortrait, isPhone }) => {
+    const [dismissed, setDismissed] = useState(false);
+    
+    if (!isPhone || !isPortrait || dismissed) return null;
+    
+    return (
+      <div className="portrait-message">
+        <div style={{ fontSize: '24px', marginBottom: '1rem' }}>
+          ↺ Rotate Your Device ↻
+        </div>
+        <p>
+          For the best experience with the sound keyboard,
+          please rotate your device to landscape mode.
+        </p>
+        <button 
+          onClick={() => setDismissed(true)}
+          style={{
+            marginTop: '1rem',
+            padding: '10px 20px',
+            background: 'rgba(80, 120, 220, 0.8)',
+            border: 'none',
+            borderRadius: '20px',
+            color: 'white'
+          }}
+        >
+          Continue Anyway
+        </button>
+      </div>
+    );
+  };
 
   // Optimized bubbles that don't reset
   const OptimizedBubbles = () => {
@@ -628,32 +728,49 @@ function App() {
   
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-      <Canvas 
-        style={{ width: '100%', height: '100%' }} 
-        dpr={Math.min(1.5, window.devicePixelRatio)}
-        frameloop={performanceMode === 'high' ? 'always' : 'demand'}
-        gl={{ 
-          antialias: performanceMode === 'high',
-          powerPreference: 'high-performance',
-          alpha: true
-        }}
-        shadows
-      >
-        <Scene 
-          ref={sceneRef} 
-          onKeyPress={handleKeyPress} 
-          visualMode={visualMode}
-          performanceSettings={PERFORMANCE_PRESETS[performanceMode]}
-          spacecraftRefs={spacecraftRefs}
-          onShowAdModal={handleShowAdModal} // Pass the ad modal handler to Scene
-        />
-        <AdManager 
-          performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
-          onSpacecraftVisible={handleSpacecraftVisibility}
-          onSetSpacecraftRefs={handleSetSpacecraftRefs} 
-          onShowAdModal={handleShowAdModal}
-        />
-      </Canvas>
+      {/* Mobile portrait mode warning */}
+      <PortraitModeWarning 
+        isPortrait={deviceInfo.screenWidth < deviceInfo.screenHeight} 
+        isPhone={deviceInfo.isPhone} 
+      />
+      
+      <div ref={canvasContainerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <Canvas 
+          style={{ width: '100%', height: '100%' }} 
+          dpr={Math.min(deviceInfo.isMobile ? 1.2 : 1.5, window.devicePixelRatio)}
+          frameloop={performanceMode === 'high' ? 'always' : 'demand'}
+          gl={{ 
+            antialias: performanceMode === 'high',
+            powerPreference: 'high-performance',
+            alpha: true
+          }}
+          shadows={!deviceInfo.isMobile || performanceMode !== 'low'}
+        >
+          <Scene 
+            ref={sceneRef} 
+            onKeyPress={handleKeyPress} 
+            visualMode={visualMode}
+            performanceSettings={PERFORMANCE_PRESETS[performanceMode]}
+            spacecraftRefs={spacecraftRefs}
+            onShowAdModal={handleShowAdModal}
+          />
+          <AdManager 
+            performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
+            onSpacecraftVisible={handleSpacecraftVisibility}
+            onSetSpacecraftRefs={handleSetSpacecraftRefs} 
+            onShowAdModal={handleShowAdModal}
+          />
+        </Canvas>
+        
+        {/* Add TouchControls for mobile devices */}
+        {(deviceInfo.isMobile || deviceInfo.hasTouch) && (
+          <TouchControls 
+            sceneRef={sceneRef}
+            containerRef={canvasContainerRef}
+            deviceInfo={deviceInfo}
+          />
+        )}
+      </div>
   
       {/* Guided Tour Component */}
       <GuidedTour isFirstVisit={showTour} onComplete={handleTourComplete} />
@@ -668,7 +785,14 @@ function App() {
         />
       )}
   
-      <div style={controlsStyle}>
+      <div 
+        className="controls-bar"
+        style={{
+          ...controlsStyle,
+          flexWrap: deviceInfo.isMobile ? 'wrap' : 'nowrap',
+          padding: deviceInfo.isMobile ? '0.5rem' : '1rem'
+        }}
+      >
         <div style={buttonGroupStyle}>
           
         </div>
@@ -677,9 +801,13 @@ function App() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          flex: 1
+          flex: 1,
+          flexWrap: deviceInfo.isMobile ? 'wrap' : 'nowrap'
         }}>
-          <div style={sliderContainerStyle}>
+          <div 
+            className="slider-container"
+            style={sliderContainerStyle}
+          >
             <span style={sliderLabelStyle}>Camera Speed:</span>
             <input 
               type="range" 
@@ -689,7 +817,8 @@ function App() {
               value={cameraSpeed} 
               onChange={handleCameraSpeedChange}
               style={{
-                accentColor: 'rgba(80, 120, 220, 0.8)'
+                accentColor: 'rgba(80, 120, 220, 0.8)',
+                width: deviceInfo.isMobile ? '80px' : '120px'
               }}
               data-tour-target="camera-speed"
             />
@@ -722,7 +851,7 @@ function App() {
           }}>
             <span style={{ marginRight: '0.5rem', fontSize: '0.9rem' }}>Sound Intensity:</span>
             <div style={{
-              width: '100px',
+              width: deviceInfo.isMobile ? '60px' : '100px',
               height: '8px',
               background: 'rgba(30, 40, 60, 0.5)',
               borderRadius: '4px',
@@ -744,6 +873,7 @@ function App() {
       </div>
   
       <div 
+        className="performance-button"
         style={performanceButtonStyle} 
         onClick={togglePerformancePopup}
         title="Performance Settings"
@@ -753,6 +883,7 @@ function App() {
       </div>
   
       <div 
+        className="help-button"
         style={helpButtonStyle} 
         onClick={toggleHelpPopup}
         title="Help"
@@ -900,6 +1031,15 @@ function App() {
   
       <MultiTrackLooper sceneRef={sceneRef} ref={looperRef} />
       <DebugUI sceneRef={sceneRef} spacecraftRefs={spacecraftRefsArray.current} />
+      
+      {/* Mobile Controls - Only shown on mobile/touch devices */}
+      {(deviceInfo.isMobile || deviceInfo.hasTouch) && (
+        <MobileControls 
+          sceneRef={sceneRef}
+          isMobile={deviceInfo.isMobile}
+          onTriggerSound={handleMobileSoundTrigger}
+        />
+      )}
     </div>
   );
 }

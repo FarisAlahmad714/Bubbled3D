@@ -1,0 +1,74 @@
+/* MobileStyles.css */
+@media (max-width: 768px) {
+    /* Apply mobile-specific styles */
+    .performance-button,
+    .help-button {
+      width: 36px !important;
+      height: 36px !important;
+      font-size: 1rem !important;
+    }
+    
+    .controls-bar {
+      padding: 0.5rem !important;
+    }
+    
+    .slider-container input[type="range"] {
+      width: 80px !important;
+    }
+    
+    /* Make buttons bigger for touch */
+    button {
+      min-height: 44px;
+      min-width: 44px;
+    }
+  }
+  
+  /* Add a class to handle portrait/landscape switching */
+  .landscape-only {
+    display: block;
+  }
+  
+  @media (orientation: portrait) and (max-width: 768px) {
+    .landscape-only {
+      display: none !important;
+    }
+    
+    .portrait-message {
+      display: flex !important;
+    }
+  }
+  
+  .portrait-message {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    z-index: 9999;
+    flex-direction: column;
+    padding: 2rem;
+  }
+  
+  /* Touch-friendly slider styles */
+  input[type="range"] {
+    -webkit-appearance: none;
+    height: 24px;
+    background: rgba(40, 50, 80, 0.5);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 24px;
+    height: 24px;
+    background: rgba(80, 120, 220, 0.8);
+    border-radius: 50%;
+    box-shadow: 0 0 5px rgba(80, 120, 220, 0.5);
+  }

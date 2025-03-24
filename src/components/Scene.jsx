@@ -1,5 +1,4 @@
-//Scene.jsx
-import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle, useMemo } from 'react';
 import { OrbitControls, Stars } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { v4 as uuidv4 } from 'uuid';
@@ -11,10 +10,11 @@ import ParticleInteraction from './ParticleInteraction';
 import Lighting from './Lighting';
 import StarBase from './StarBase';
 import Planet from './Planet';
-import Earth from './Earth'; // Import our new Earth component
+import Earth from './Earth';
 import Astronaut from './Astronaut';
 import { FirstPersonControls } from 'three/examples/jsm/controls/FirstPersonControls.js';
 import { useAudioManager } from './AudioManager';
+import { usePerformance } from './PerformanceOptimizer'; // Import the usePerformance hook
 
 // Helper functions to determine colors based on visualMode
 const getColorForVisualMode = (baseColor, visualMode) => {
@@ -62,6 +62,35 @@ const getFogColor = (visualMode) => {
 };
 
 const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdModal, ...props }, ref) {
+  // Access the performance context
+  const { 
+    performanceMode, 
+    performancePresets, 
+    deviceInfo, 
+    qualityLevel, 
+    currentFps 
+  } = usePerformance();
+
+  // Use performance settings from context or props
+  const currentSettings = useMemo(() => {
+    // Priority: 1. Props (for backward compatibility) 2. Context settings
+    return props.performanceSettings || performancePresets[performanceMode];
+  }, [props.performanceSettings, performanceMode, performancePresets]);
+
+  // Dynamic settings based on qualityLevel (for adaptive performance)
+  const dynamicSettings = useMemo(() => {
+    if (!currentSettings) return null;
+    
+    return {
+      ...currentSettings,
+      particleCount: Math.round(currentSettings.particleCount * qualityLevel),
+      starCount: Math.round(currentSettings.starCount * qualityLevel),
+      maxSpheres: Math.max(10, Math.round(currentSettings.maxSpheres * qualityLevel)),
+      bloomIntensity: currentSettings.bloomIntensity * qualityLevel
+    };
+  }, [currentSettings, qualityLevel]);
+
+  // Main state
   const [spheres, setSpheres] = useState([]);
   const [rings, setRings] = useState([]);
   const [cameraMode, setCameraMode] = useState('orbit');
@@ -76,9 +105,15 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
   const astronautRef = useRef();
   const astronautViewDistance = useRef(2); // Distance behind astronaut (0 for first person)
   const isFirstPersonView = useRef(false); // Toggle between first and third person views
+  
   // Get audio manager from context
   const audioManager = useAudioManager();
   const bufferLoadingStarted = useRef(false);
+
+  // Performance tracking
+  const lastPerformanceMode = useRef(performanceMode);
+  const lowFpsCount = useRef(0);
+  const performanceAutoAdjusted = useRef(false);
 
   const cameraParams = useRef({
     speed: 0.02,
@@ -125,7 +160,6 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     'c': { color: '#f0ff52', src: ['/Sounds/loop10.wav', '/Sounds/loop10.mp3'], scale: 1.5, lifetime: 8000, pulseSpeed: 0.3, category: 'Loop' }
   };
 
-
   // Preload audio buffers
   useEffect(() => {
     if (audioManager.isReady && !bufferLoadingStarted.current) {
@@ -140,6 +174,46 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     }
   }, [audioManager.isReady]);
 
+  // Monitor for performance mode changes and apply them
+  useEffect(() => {
+    if (performanceMode !== lastPerformanceMode.current) {
+      console.log(`Performance mode changed from ${lastPerformanceMode.current} to ${performanceMode}`);
+      
+      // Apply new performance settings
+      applyPerformanceSettings(performancePresets[performanceMode]);
+      
+      // Reset auto-adjustment tracking
+      performanceAutoAdjusted.current = true;
+      lowFpsCount.current = 0;
+      lastPerformanceMode.current = performanceMode;
+    }
+  }, [performanceMode, performancePresets]);
+
+  // Apply performance settings function
+  const applyPerformanceSettings = (settings) => {
+    // Update fog distance based on performance
+    if (scene && scene.fog) {
+      scene.fog.near = settings.postProcessing ? 30 : 20;
+      scene.fog.far = settings.postProcessing ? 100 : 80;
+    }
+    
+    // Update camera far plane based on device capability
+    if (camera) {
+      // On low-end devices, reduce viewing distance to improve performance
+      if (deviceInfo?.isLowEnd && !settings.postProcessing) {
+        camera.far = 5000; // Reduced from 10000 for performance
+      } else {
+        camera.far = 10000;
+      }
+      camera.updateProjectionMatrix();
+    }
+    
+    // Apply settings to any child components that need them
+    // (Note: Most child components will receive these via props directly)
+    
+    console.log('Applied performance settings:', settings);
+  };
+
   const trackPositions = useRef({});
   const recordedEvents = useRef([]);
   const recordStart = useRef(0);
@@ -150,37 +224,75 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
   const peakIntensity = useRef(0);
   const intensityDecay = useRef(0.95);
   const activeSpacecraftRef = useRef(null);
+  const performanceMonitorRef = useRef({
+    lastCheck: Date.now(),
+    checkInterval: 5000, // Check performance every 5 seconds
+    fpsThreshold: 30     // FPS threshold for auto-adjustments
+  });
 
   // Update scene fog based on visualMode
   useEffect(() => {
     console.log('Visual Mode updated in Scene:', visualMode);
     scene.fog = new THREE.Fog(
       getFogColor(visualMode),
-      30,  // Start fog further away (was 10)
-      100  // Extend fog distance (was 50)
+      dynamicSettings ? dynamicSettings.postProcessing ? 30 : 20 : 30,  // Start fog further away
+      dynamicSettings ? dynamicSettings.postProcessing ? 100 : 80 : 100  // Extend fog distance
     );
-  }, [visualMode, scene]);
+  }, [visualMode, scene, dynamicSettings]);
 
   // Update camera far plane to see distant Earth
   useEffect(() => {
     if (camera) {
       camera.near = 0.1;
-      camera.far = 10000; // Increased from 1000 to 10000 to see distant Earth
+      // Set far plane based on device capability and performance mode
+      if (deviceInfo?.isLowEnd && performanceMode === 'low') {
+        camera.far = 5000; // Reduced for low-end devices
+      } else {
+        camera.far = 10000; // Full distance for better devices
+      }
       camera.updateProjectionMatrix();
       console.log('Updated camera far plane for Earth visibility');
     }
-  }, [camera]);
+  }, [camera, deviceInfo, performanceMode]);
+
+  // Apply initial performance settings
+  useEffect(() => {
+    if (dynamicSettings) {
+      applyPerformanceSettings(dynamicSettings);
+    }
+  }, [dynamicSettings]);
 
   useFrame(({ clock }, delta) => {
     const time = clock.getElapsedTime();
     const now = Date.now();
 
+    // Auto-switch camera mode after inactivity
     if (now - lastActiveTime.current > cameraParams.current.autoSwitchDelay) {
       const modes = ['orbit', 'panorama', 'follow', 'free', 'astronaut'];
       const currentIndex = modes.indexOf(cameraMode);
       const nextIndex = (currentIndex + 1) % modes.length;
       setCameraMode(modes[nextIndex]);
       lastActiveTime.current = now;
+    }
+
+    // Performance monitoring
+    if (now - performanceMonitorRef.current.lastCheck > performanceMonitorRef.current.checkInterval) {
+      performanceMonitorRef.current.lastCheck = now;
+      
+      // Check if we need auto performance adjustment
+      if (!performanceAutoAdjusted.current && currentFps < performanceMonitorRef.current.fpsThreshold) {
+        lowFpsCount.current++;
+        
+        // If consistently low FPS for multiple checks, suggest performance reduction
+        if (lowFpsCount.current >= 3 && performanceMode !== 'low') {
+          console.warn(`Performance issue detected: ${currentFps} FPS. Consider reducing quality.`);
+          // We could automatically adjust here by dispatching to the PerformanceOptimizer
+          // but we'll leave that decision to the user interface
+        }
+      } else {
+        // Reset counter if FPS is good
+        lowFpsCount.current = 0;
+      }
     }
 
     soundIntensity.current *= intensityDecay.current;
@@ -297,6 +409,9 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
   }
 
   function createRingEffect(position, color, trackId) {
+    // Don't create rings in low performance mode with many objects
+    if (performanceMode === 'low' && rings.length > 20) return null;
+    
     const ringId = uuidv4();
     const newRing = {
       id: ringId,
@@ -316,7 +431,9 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
   }
 
   function createSphereAndPlaySound(k, trackId = null, isRecorded = false) {
-    if (!keyData[k] || spheres.length >= props.performanceSettings.maxSpheres) return null;
+    const effectiveSettings = dynamicSettings || (props.performanceSettings || performancePresets[performanceMode]);
+    
+    if (!keyData[k] || (spheres.length >= effectiveSettings.maxSpheres && !isRecorded)) return null;
     lastActiveTime.current = Date.now();
     
     let position;
@@ -354,6 +471,10 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     
     sphereColor = getColorForVisualMode(sphereColor, visualMode).getStyle();
     
+    // Adjust lifetime based on performance mode to reduce object count
+    const lifetimeAdjustment = performanceMode === 'low' ? 0.7 : 
+                              performanceMode === 'medium' ? 0.85 : 1.0;
+    
     const newSphere = {
       position,
       color: sphereColor,
@@ -361,7 +482,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
       scale: (keyData[k].scale || 1.0) * scaleMultiplier,
       pulseSpeed: (keyData[k].pulseSpeed || 0.5) * pulseSpeedMultiplier,
       createdAt: Date.now(),
-      lifetime: (keyData[k].lifetime || 8000) * lifetimeMultiplier,
+      lifetime: (keyData[k].lifetime || 8000) * lifetimeMultiplier * lifetimeAdjustment,
       key: k,
       isRecorded: isRecorded,
       trackId: trackId,
@@ -372,8 +493,20 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     activeSphereRef.current = new THREE.Vector3(...position);
     
     setSpheres(prev => {
-      const next = [...prev, newSphere];
-      if (next.length > props.performanceSettings.maxSpheres) next.shift();
+      // Sort by recorded/non-recorded to prioritize keeping recorded spheres
+      const next = [...prev, newSphere].sort((a, b) => {
+        // Keep recorded spheres
+        if (a.isRecorded && !b.isRecorded) return 1;
+        if (!a.isRecorded && b.isRecorded) return -1;
+        // Otherwise, remove oldest first
+        return a.createdAt - b.createdAt;
+      });
+      
+      // If over limit, remove oldest non-recorded spheres first
+      if (next.length > effectiveSettings.maxSpheres) {
+        return next.slice(next.length - effectiveSettings.maxSpheres);
+      }
+      
       return next;
     });
     
@@ -463,6 +596,9 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
+    
+    // Performance-optimized cleanup interval
+    // Adjust frequency based on performance mode
     const cleanupInterval = setInterval(() => {
       const now = Date.now();
       setSpheres(prevSpheres =>
@@ -471,12 +607,13 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
       setRings(prevRings =>
         prevRings.filter(ring => (now - ring.createdAt) < ring.lifetime)
       );
-    }, 1000);
+    }, performanceMode === 'high' ? 500 : performanceMode === 'medium' ? 1000 : 2000);
+    
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       clearInterval(cleanupInterval);
     };
-  }, [isRecording, cameraMode, props.performanceSettings]);
+  }, [isRecording, cameraMode, performanceMode]);
 
   function startRecording() {
     recordedEvents.current = [];
@@ -549,21 +686,29 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
   }
 
   function setPerformanceMode(settings) {
-    // Update performance settings if needed
+    // Only apply settings that are actually passed
+    if (!settings) return;
+    
+    console.log('Manual performance settings update:', settings);
+    applyPerformanceSettings(settings);
+    
+    // Reset auto-adjustment tracking
+    performanceAutoAdjusted.current = true;
+    lowFpsCount.current = 0;
   }
 
   // Add these helper functions before useImperativeHandle
-// Toggle astronaut first/third person view
-function toggleAstronautView(isFirstPerson) {
-  if (cameraMode === 'astronaut') {
-    isFirstPersonView.current = isFirstPerson;
+  // Toggle astronaut first/third person view
+  function toggleAstronautView(isFirstPerson) {
+    if (cameraMode === 'astronaut') {
+      isFirstPersonView.current = isFirstPerson;
+    }
   }
-}
 
-// Set astronaut view distance (for third-person)
-function setAstronautViewDistance(distance) {
-  astronautViewDistance.current = Math.max(1, Math.min(10, distance));
-}
+  // Set astronaut view distance (for third-person)
+  function setAstronautViewDistance(distance) {
+    astronautViewDistance.current = Math.max(1, Math.min(10, distance));
+  }
 
   useImperativeHandle(ref, () => ({
     createSphereAndPlaySound,
@@ -592,7 +737,9 @@ function setAstronautViewDistance(distance) {
         target: cameraTargetRef.current?.clone() || null
       };
     },
-    getActiveSpacecraft: () => activeSpacecraftRef.current
+    getActiveSpacecraft: () => activeSpacecraftRef.current,
+    getCurrentPerformanceMode: () => performanceMode,
+    getPerformanceSettings: () => dynamicSettings || currentSettings
   }));
 
   function Ring({ ring }) {
@@ -608,6 +755,9 @@ function setAstronautViewDistance(distance) {
       </mesh>
     );
   }
+
+  // Use dynamic settings or fallback to props
+  const activeSettings = dynamicSettings || (props.performanceSettings || performancePresets[performanceMode]);
 
   return (
     <>
@@ -646,43 +796,50 @@ function setAstronautViewDistance(distance) {
           maxPolarAngle={Math.PI} // Allow looking straight down to see Earth
         />
       )}
-<Astronaut 
-  ref={astronautRef}
-  visualMode={visualMode}
-  orbitRadius={8}
-  orbitHeight={5}
-  floatSpeed={0.015}   
-  scale={5}
-/>
+      
+      <Astronaut 
+        ref={astronautRef}
+        visualMode={visualMode}
+        orbitRadius={8}
+        orbitHeight={5}
+        floatSpeed={0.015}   
+        scale={5}
+      />
+      
       <Lighting
         soundIntensity={soundIntensity.current}
         orbColor={orbColor}
         visualMode={visualMode}
       />
+      
       <Stars
         radius={20}
         depth={10}
-        count={props.performanceSettings.starCount}
+        count={activeSettings.starCount}
         factor={2}
         saturation={visualMode === 'monochrome' ? 0 : 0.3}
         fade
         speed={0.2}
       />
+      
       <ParticleField
         soundIntensity={soundIntensity.current}
-        performanceSettings={props.performanceSettings}
+        performanceSettings={activeSettings}
         visualMode={visualMode}
       />
+      
       <ParticleInteraction
         spheres={spheres}
         soundIntensity={soundIntensity.current}
         visualMode={visualMode}
       />
+      
       <StarBase
         soundIntensity={soundIntensity.current}
         onColorChange={(color) => setOrbColor(getColorForVisualMode(color, visualMode))}
         visualMode={visualMode}
       />
+      
       {process.env.NODE_ENV === 'development' && spacecraftRefs && spacecraftRefs.map((spacecraftRef, index) => {
         if (!spacecraftRef?.current) return null;
         try {
@@ -697,6 +854,7 @@ function setAstronautViewDistance(distance) {
           return null;
         }
       })}
+      
       {spheres.map(sphere => (
         <Sphere
           key={sphere.id}
@@ -715,6 +873,7 @@ function setAstronautViewDistance(distance) {
           visualMode={visualMode}
         />
       ))}
+      
       {rings.map(ring => (
         <Ring key={ring.id} ring={ring} />
       ))}
