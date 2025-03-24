@@ -8,7 +8,9 @@ import AdManager from './components/AdManager';
 import DebugUI from './components/DebugUI';
 import EnhancedBubblesTitle from './components/EnhancedBubblesTitle';
 import { AudioManagerProvider, useAudioManager } from './components/AudioManager';
-import AdModal from './components/AdModal'; // Import the new AdModal component
+import AdModal from './components/AdModal'; 
+import GuidedTour from './components/GuidedTour'; // Import the new GuidedTour component
+
 
 // Performance preset configurations
 const PERFORMANCE_PRESETS = {
@@ -62,6 +64,9 @@ function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
   
+  // Add state for the guided tour
+  const [showTour, setShowTour] = useState(false);
+  
   // Add state for the ad modal
   const [adModalInfo, setAdModalInfo] = useState(null);
   
@@ -75,6 +80,33 @@ function App() {
   const lastFrameTimeRef = useRef(performance.now());
   const spacecraftRefsArray = useRef([]);
   const particleContainerRef = useRef(null);
+
+  // Check if user has seen the guided tour before
+  useEffect(() => {
+    if (entered) {
+      console.log('Setting showTour to true for debugging');
+      // Force the tour to show for testing
+      setShowTour(true);
+      
+      // Uncomment this when done debugging
+      // const hasCompletedTour = localStorage.getItem('hasCompletedTour') === 'true';
+      // setShowTour(!hasCompletedTour);
+    }
+  }, [entered]);
+  
+
+  // Handler to complete the tour
+  const handleTourComplete = () => {
+    console.log('Tour completion handler called');
+    setShowTour(false);
+    localStorage.setItem('hasCompletedTour', 'true');
+  };
+
+  // Function to manually start the tour
+  const startTour = () => {
+    setShowTour(true);
+    setShowHelpPopup(false);
+  };
 
   // Handler to show the ad modal
   const handleShowAdModal = (adInfo) => {
@@ -239,8 +271,14 @@ function App() {
   };
 
   const toggleHelpPopup = () => {
-    setShowHelpPopup(!showHelpPopup);
-    setShowPerformancePopup(false);
+    // If help is already showing, clicking again will start the tour
+    if (showHelpPopup) {
+      setShowHelpPopup(false);
+      startTour();
+    } else {
+      setShowHelpPopup(!showHelpPopup);
+      setShowPerformancePopup(false);
+    }
   };
 
   const togglePerformancePopup = () => {
@@ -373,7 +411,7 @@ function App() {
               Welcome to a dynamic 3D audio-visual experience. Press keys to create sounds and visual elements,
               record sequences, and watch as the environment responds to your music.
             </p>
-            
+           
             {/* Enhanced enter button */}
             <div className="enter-button-container">
               <button 
@@ -415,7 +453,7 @@ function App() {
     color: 'white',
     cursor: 'pointer',
     fontSize: '0.9rem',
-    transition: 'all 0.2s ease'
+    
   };
 
   const activeButtonStyle = {
@@ -544,12 +582,15 @@ function App() {
           onShowAdModal={handleShowAdModal} // Pass the ad modal handler to Scene
         />
         <AdManager 
-  performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
-  onSpacecraftVisible={handleSpacecraftVisibility}
-  onSetSpacecraftRefs={handleSetSpacecraftRefs} 
-  onShowAdModal={handleShowAdModal} // FIXED - use the correct function name
-/>
+          performanceSettings={PERFORMANCE_PRESETS[performanceMode]} 
+          onSpacecraftVisible={handleSpacecraftVisibility}
+          onSetSpacecraftRefs={handleSetSpacecraftRefs} 
+          onShowAdModal={handleShowAdModal}
+        />
       </Canvas>
+
+      {/* Guided Tour Component */}
+      <GuidedTour isFirstVisit={showTour} onComplete={handleTourComplete} />
 
       {/* Ad Modal - Rendered outside the Canvas */}
       {adModalInfo && (
@@ -590,11 +631,7 @@ function App() {
           <button 
             onClick={handleCameraModeToggle}
             style={cameraMode === 'orbit' ? activeButtonStyle : buttonStyle}
-            onMouseOver={(e) => e.target.style.background = 'rgba(50, 70, 120, 0.8)'}
-            onMouseOut={(e) => e.target.style.background = cameraMode === 'orbit' 
-              ? 'rgba(60, 100, 200, 0.8)' 
-              : 'rgba(40, 50, 80, 0.8)'
-            }
+            
           >
             Camera: {cameraMode.charAt(0).toUpperCase() + cameraMode.slice(1)}
           </button>
@@ -602,8 +639,7 @@ function App() {
           <button 
             onClick={handleVisualModeToggle}
             style={buttonStyle}
-            onMouseOver={(e) => e.target.style.background = 'rgba(50, 70, 120, 0.8)'}
-            onMouseOut={(e) => e.target.style.background = 'rgba(40, 50, 80, 0.8)'}
+          
           >
             Visual: {visualMode.charAt(0).toUpperCase() + visualMode.slice(1)}
           </button>
@@ -774,6 +810,23 @@ function App() {
             <li style={{ margin: '0.3rem 0' }}>Experiment with layering multiple sounds</li>
             <li style={{ margin: '0.3rem 0' }}>If performance is slow, try the ⚙️ menu for performance options</li>
           </ul>
+          
+          {/* Add the "Restart Tour" button */}
+          <button 
+            onClick={startTour} 
+            style={{
+              padding: '8px 12px',
+              marginTop: '15px',
+              background: 'rgba(60, 100, 200, 0.6)',
+              border: '1px solid rgba(100, 150, 255, 0.6)',
+              borderRadius: '4px',
+              color: 'white',
+              cursor: 'pointer',
+              width: '100%'
+            }}
+          >
+            Restart Guided Tour
+          </button>
         </div>
       )}
 

@@ -1,99 +1,116 @@
-import { useState, useEffect, createRef, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import AdSpaceship from './AdSpaceship';
 import { usePerformance } from './PerformanceOptimizer';
 
+// Create a global texture cache
+const textureCache = {};
+
 export default function AdManager({ 
   performanceSettings, 
   onSpacecraftVisible, 
   onSetSpacecraftRefs,
-  onShowAdModal // Make sure this prop is being received correctly
+  onShowAdModal
 }) {
   const { performanceMode } = usePerformance();
+  const frameSkipCount = useRef(0);
   
-  // Updated with direct image paths - no planet creation, as that's handled by Scene.jsx
-  const [ads, setAds] = useState([
+  // Memoize ad configuration to prevent unnecessary re-renders
+  const adConfig = useMemo(() => [
     {
       id: 1,
       modelPath: '/models/starship.glb', 
-      bannerUrl: '/ads/ad3.png', // Direct path to ad image
-      bannerLink: "https://github.com/FarisAlahmad714/Bubbled3D", // URL to navigate to when clicked
-      bannerTitle: "Space Explorer Project", // Added title for the modal
+      bannerUrl: '/ads/ad3.png',
+      bannerLink: "https://github.com/FarisAlahmad714/Bubbled3D",
+      bannerTitle: "Space Explorer Project",
       speedFactor: 1.0,
       animationType: 'none',
-      positionOffset: [0, 0, 0],
-      // Corrected thruster positions - positioned further back and horizontal
-      thrusterPositions: [
-        // Main thruster position (center back)
-        new THREE.Vector3(15, 0, 0),
-        // Top row of engines (matching your Blender code):
-        new THREE.Vector3(15, 4, 1.5),
-        new THREE.Vector3(15, 0, 1.5),
-        new THREE.Vector3(15, -4, 1.5),
-        // Bottom row of engines:
-        new THREE.Vector3(15, 3, -1.5),
-        new THREE.Vector3(15, 0, -1.5),
-        new THREE.Vector3(15, -3, -1.5)
-      ]
+      positionOffset: [0, 0, 0]
     }
-  ]);
+  ], []);
 
-  const [activeAds, setActiveAds] = useState([]);
+  // Determine maximum ads based on performance mode
+  const maxAds = useMemo(() => 
+    performanceMode === 'low' ? 1 :
+    performanceMode === 'medium' ? 2 : 3
+  , [performanceMode]);
+  
+  // Memoize active ads to prevent unnecessary re-renders
+  const activeAds = useMemo(() => 
+    adConfig.slice(0, maxAds)
+  , [adConfig, maxAds]);
+  
   const [isSpacecraftVisible, setIsSpacecraftVisible] = useState(false);
 
-  // Create refs for each spacecraft
+  // Create fixed number of refs only once
   const spacecraftRefs = useRef(
-    ads.map(() => createRef())
+    Array(maxAds).fill().map(() => ({
+      current: null
+    }))
   );
 
-  // Adjust number of ads based on performance settings
-  const maxAds = performanceMode === 'low' ? 1 :
-                 performanceMode === 'medium' ? 2 : 3;
-
-  // Setup active ads when performance mode changes
+  // Preload textures once for better performance
   useEffect(() => {
-    setActiveAds(ads.slice(0, maxAds));
-    // Pass refs to parent (Scene.jsx)
+    // Use TextureLoader with proper caching
+    const textureLoader = new THREE.TextureLoader();
+    
+    activeAds.forEach(ad => {
+      if (ad.bannerUrl && !textureCache[ad.bannerUrl]) {
+        console.log('Preloading texture:', ad.bannerUrl);
+        textureLoader.load(
+          ad.bannerUrl,
+          (texture) => {
+            textureCache[ad.bannerUrl] = texture;
+            console.log('Texture preloaded successfully:', ad.bannerUrl);
+          },
+          undefined,
+          (err) => console.error('Error preloading texture:', ad.bannerUrl, err)
+        );
+      }
+    });
+    
+    // Pass refs to parent component
     if (onSetSpacecraftRefs) {
       onSetSpacecraftRefs(spacecraftRefs.current);
     }
     
-    // Add event listeners to ensure images are loaded correctly
-    const preloadImages = () => {
-      ads.forEach(ad => {
-        if (ad.bannerUrl) {
-          console.log('Preloading image:', ad.bannerUrl);
-          const img = new Image();
-          img.src = ad.bannerUrl;
-          img.onload = () => console.log('Image preloaded successfully:', ad.bannerUrl);
-          img.onerror = (err) => console.error('Error preloading image:', ad.bannerUrl, err);
+    // Cleanup function to release textures when component unmounts
+    return () => {
+      // Only dispose textures that aren't being used elsewhere
+      Object.entries(textureCache).forEach(([url, texture]) => {
+        if (!activeAds.some(ad => ad.bannerUrl === url)) {
+          texture.dispose();
+          delete textureCache[url];
         }
       });
     };
-    
-    preloadImages();
-    
-  }, [ads, maxAds, onSetSpacecraftRefs, performanceMode]);
+  }, [activeAds, onSetSpacecraftRefs]);
 
-  // Create a wrapper for the modal handler to add logging
-  const handleShowModal = (adInfo) => {
-    console.log('AdManager: Showing modal with:', adInfo);
+  // Create an optimized modal handler
+  const handleShowModal = useMemo(() => (adInfo) => {
     if (typeof onShowAdModal === 'function') {
       onShowAdModal(adInfo);
-    } else {
-      console.error('AdManager: onShowAdModal is not a function or not provided!', onShowAdModal);
     }
-  };
+  }, [onShowAdModal]);
 
-  // Optimized frame handler using fewer calculations
+  // Optimize frame handler with frame skipping
   useFrame(({ clock }) => {
-    // Reduced cycle time for better performance
+    // Skip frames based on performance mode
+    const framesToSkip = performanceMode === 'low' ? 3 : 
+                         performanceMode === 'medium' ? 1 : 0;
+    
+    if (framesToSkip > 0 && frameSkipCount.current++ % framesToSkip !== 0) {
+      return; // Skip this frame
+    }
+    
+    // Simplified time calculations
     const cycleTime = 60;
     const flyByDuration = 30;
     const elapsed = clock.getElapsedTime() % cycleTime;
-
     const anyVisible = elapsed < flyByDuration;
+    
+    // Only update state when visibility changes
     if (anyVisible !== isSpacecraftVisible) {
       setIsSpacecraftVisible(anyVisible);
       if (onSpacecraftVisible) {
@@ -105,29 +122,37 @@ export default function AdManager({
   // Determine which lights to show based on performance mode
   const showSpotlight = performanceMode !== 'low';
   
+  // Use fewer lights for better performance
+  const lightIntensity = performanceMode === 'low' ? 0.7 :
+                        performanceMode === 'medium' ? 0.8 : 1.0;
+  
   return (
     <>
-      {/* Reduced lighting based on performance mode */}
-      <ambientLight intensity={0.5} />
+      {/* Single ambient light for base illumination */}
+      <ambientLight intensity={lightIntensity * 0.5} />
       
-      {/* Only use directional light for all performance modes */}
+      {/* Single directional light that works for all performance modes */}
       <directionalLight 
         position={[10, 10, 10]} 
-        intensity={1.0} 
+        intensity={lightIntensity}
         castShadow={performanceMode === 'high'}
+        shadow-mapSize={[512, 512]} // Smaller shadow maps for performance
       />
       
-      {/* Only add spotlight in medium/high performance modes */}
+      {/* Only add spotlight in higher performance modes */}
       {showSpotlight && (
         <spotLight
           position={[0, 10, 10]}
           angle={0.3}
           penumbra={0.2}
-          intensity={1.2}
+          intensity={lightIntensity * 1.2}
+          distance={50} // Limit light distance
           castShadow={performanceMode === 'high'}
+          shadow-mapSize={[512, 512]} // Smaller shadow maps for performance
         />
       )}
 
+      {/* Render only active ads */}
       <group>
         {activeAds.map((ad, index) => (
           <AdSpaceship
@@ -140,9 +165,8 @@ export default function AdManager({
             speedFactor={ad.speedFactor}
             animationType={ad.animationType}
             positionOffset={ad.positionOffset}
-            thrusterPositions={ad.thrusterPositions}
-            onShowModal={handleShowModal} // Use our wrapper function instead
-            debugMode={false} // Disable debug mode for production
+            onShowModal={handleShowModal}
+            debugMode={false}
           />
         ))}
       </group>

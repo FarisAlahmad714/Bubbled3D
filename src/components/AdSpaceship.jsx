@@ -7,43 +7,22 @@ import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader';
 import { Html } from '@react-three/drei';
 import { usePerformance } from './PerformanceOptimizer';
 
-// Create a more efficient flame texture
-const createFlameTexture = () => {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  
-  // Create radial gradient
-  const gradient = ctx.createRadialGradient(
-    size/2, size/2, 0,
-    size/2, size/2, size/2
-  );
-  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-  gradient.addColorStop(0.3, 'rgba(255, 200, 50, 0.8)');
-  gradient.addColorStop(0.7, 'rgba(255, 50, 0, 0.4)');
-  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, size, size);
-  
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.needsUpdate = true;
-  return texture;
+// Cache for shared geometries and materials
+const sharedResources = {
+  geometries: {},
+  materials: {},
+  textures: {}
 };
-
 
 const AdSpaceship = forwardRef(function AdSpaceship({ 
   modelPath, 
   bannerUrl, 
   bannerLink = "https://example.com",
-  bannerTitle,
+  bannerTitle, 
   speedFactor, 
   animationType, 
   positionOffset,
-  thrusterPositions: customThrusterPositions,
-  onShowModal,
+  onShowModal, 
   debugMode = false
 }, ref) {
   const { qualityLevel, performanceMode } = usePerformance();
@@ -56,12 +35,9 @@ const AdSpaceship = forwardRef(function AdSpaceship({
   const modelRef = useRef(null);
   const followLightRef = useRef();
   const followLightTargetRef = useRef();
-  const engineFlameRef = useRef(); // Main engine flame
-  const smallFlamesRef = useRef([]); // Array for smaller thrusters
-  const exhaustCloudRef = useRef(); // Smoke/vapor trail
   const adBannerRef = useRef();
   const loadedTextures = useRef([]);
- 
+  const frameCount = useRef(0); // For frame skipping
   
   // Create a ref to hold the banner group for smooth rotation
   const bannerGroupRef = useRef();
@@ -77,13 +53,6 @@ const AdSpaceship = forwardRef(function AdSpaceship({
   const [adVisible, setAdVisible] = useState(true); // Set to true by default
   const [bannerScale, setBannerScale] = useState(1);
   const [bannerRotation, setBannerRotation] = useState([0, 0, 0]);
-  const [enginePower, setEnginePower] = useState(1);
-  
-  // Thruster positions - will be set after model loads
-  const thrusterPositions = useRef([]);
-  
-  // Memoize flame texture for reuse
-  const flameTexture = useMemo(() => createFlameTexture(), []);
   
   // Memoized path
   const path = useMemo(() => {
@@ -92,16 +61,6 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     return new THREE.CatmullRomCurve3([startPoint, endPoint]);
   }, [positionOffset]);
 
-  // Determine particle counts based on performance mode
-  const particleCount = useMemo(() => {
-    switch(performanceMode) {
-      case 'low': return 20;
-      case 'medium': return 50;
-      case 'high': return 100;
-      default: return 50;
-    }
-  }, [performanceMode]);
-  
   // Determine if we should use simple materials
   const useSimpleMaterials = useMemo(() => {
     return performanceMode === 'low';
@@ -112,7 +71,7 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     return modelPath.toLowerCase().endsWith('.gltf') || 
            modelPath.toLowerCase().endsWith('.glb');
   }, [modelPath]);
-
+  
   // Check if the pointer is over any of our objects
   const checkIntersection = () => {
     if (!spaceshipRef.current || !camera || !raycaster) return false;
@@ -127,7 +86,35 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     return intersects.length > 0;
   };
   
-  // Handle click on the spaceship - UPDATED to match Planet.jsx
+  // Click handler for the banner ad
+  const handleAdClick = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    console.log('SPACESHIP BANNER BUTTON CLICKED!');
+    
+    // Always use the modal when available
+    if (typeof onShowModal === 'function') {
+      onShowModal({
+        adImage: bannerUrl,
+        adLink: bannerLink,
+        adTitle: bannerTitle || 'Space Travel Offer'
+      });
+      console.log('Modal function called with:', {
+        adImage: bannerUrl,
+        adLink: bannerLink,
+        adTitle: bannerTitle || 'Space Travel Offer'
+      });
+    } else {
+      console.error('onShowModal is not a function:', onShowModal);
+      // Only as absolute fallback
+      window.open(bannerLink, '_blank');
+    }
+    
+    return false;
+  };
+
+  // Handle click on the spaceship
   const handleClick = () => {
     if (hovered) {
       console.log('Spaceship clicked, showing modal');
@@ -171,29 +158,15 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     // Load the banner texture
     loadBanner(loadingManager);
     
-    // Add lights to the spacecraft
-    addLights();
+    // Add lights to the spacecraft (only in medium/high performance)
+    if (performanceMode !== 'low') {
+      addLights();
+    }
 
     return () => {
       // Cleanup
       loadedTextures.current.forEach(texture => {
         if (texture) texture.dispose();
-      });
-      
-      if (engineFlameRef.current && engineFlameRef.current.material) {
-        if (engineFlameRef.current.material.uniforms?.flameTexture?.value) {
-          engineFlameRef.current.material.uniforms.flameTexture.value.dispose();
-        }
-        engineFlameRef.current.material.dispose();
-        engineFlameRef.current.geometry.dispose();
-      }
-      
-      // Cleanup small flames
-      smallFlamesRef.current.forEach(flame => {
-        if (flame && flame.material) {
-          flame.material.dispose();
-          flame.geometry.dispose();
-        }
       });
       
       // Cancel any ongoing loads
@@ -202,14 +175,13 @@ const AdSpaceship = forwardRef(function AdSpaceship({
       loadingManager.onError = () => {};
     };
   }, [modelPath, bannerUrl, positionOffset, qualityLevel, performanceMode, 
-      useSimpleMaterials, particleCount, path, flameTexture, isGltf, customThrusterPositions]);
+      useSimpleMaterials, path, isGltf]);
 
-  // Add click handler for the spaceship - UPDATED to match Planet.jsx
+  // Add click handler for the spaceship
   useEffect(() => {
     const clickHandler = (event) => {
       if (hovered) {
         handleClick();
-        console.log('Global click handler fired when hovered, calling handleClick()');
       }
     };
     
@@ -249,11 +221,17 @@ const AdSpaceship = forwardRef(function AdSpaceship({
                 child.material.forEach(mat => {
                   mat.side = THREE.FrontSide;
                   mat.flatShading = true;
+                  mat.shininess = 0;
+                  mat.metalness = 0.1;
+                  mat.roughness = 0.8;
                   mat.needsUpdate = true;
                 });
               } else {
                 child.material.side = THREE.FrontSide;
                 child.material.flatShading = true;
+                child.material.shininess = 0;
+                child.material.metalness = 0.1;
+                child.material.roughness = 0.8;
                 child.material.needsUpdate = true;
               }
             }
@@ -266,16 +244,13 @@ const AdSpaceship = forwardRef(function AdSpaceship({
         spaceshipRef.current.add(gltf.scene);
       }
       
-      // Use custom thruster positions if provided, or find them automatically
-      if (customThrusterPositions) {
-        thrusterPositions.current = customThrusterPositions;
-        console.log('Using custom thruster positions:', thrusterPositions.current);
-      } else {
-        findThrusterPositions(gltf.scene);
-      }
-      
-      // Add engine flames after model is loaded
-      addEngineFlames();
+      // Make sure the model has proper bounding volume for frustum culling
+      gltf.scene.traverse(child => {
+        if (child.isMesh && child.geometry) {
+          child.geometry.computeBoundingSphere();
+          child.frustumCulled = true;
+        }
+      });
     });
   };
   
@@ -330,58 +305,30 @@ const AdSpaceship = forwardRef(function AdSpaceship({
           });
         }
         
+        // Make sure the model has proper bounding volume for frustum culling
+        object.traverse(child => {
+          if (child.isMesh && child.geometry) {
+            child.geometry.computeBoundingSphere();
+            child.frustumCulled = true;
+          }
+        });
+        
         if (spaceshipRef.current) {
           spaceshipRef.current.add(object);
         }
-        
-        // Use custom thruster positions if provided
-        if (customThrusterPositions) {
-          thrusterPositions.current = customThrusterPositions;
-          console.log('Using custom thruster positions:', thrusterPositions.current);
-        } else {
-          findThrusterPositions(object);
-        }
-        
-        // Add engine flames after model is loaded
-        addEngineFlames();
       });
     });
   };
   
-  // Function to find appropriate thruster positions based on model geometry
-  const findThrusterPositions = (model) => {
-    // Create a bounding box to analyze the model dimensions
-    const bbox = new THREE.Box3().setFromObject(model);
-    const size = new THREE.Vector3();
-    bbox.getSize(size);
-    
-    console.log('Model bounding box:', { 
-      min: { x: bbox.min.x, y: bbox.min.y, z: bbox.min.z },
-      max: { x: bbox.max.x, y: bbox.max.y, z: bbox.max.z },
-      size: { x: size.x, y: size.y, z: size.z }
-    });
-    
-    // Based on the Blender model's orientation, we need to adjust our thruster positions
-    // Default positions if none were found - at rear of model
-    const thrusters = [
-      // Main thruster (center)
-      new THREE.Vector3(15, 0, 0),  // CHANGED: Using positive X for back
-      // Top row:
-      new THREE.Vector3(15, 4, 1.5),
-      new THREE.Vector3(15, 0, 1.5),
-      new THREE.Vector3(15, -4, 1.5),
-      // Bottom row:
-      new THREE.Vector3(15, 3, -1.5),
-      new THREE.Vector3(15, 0, -1.5),
-      new THREE.Vector3(15, -3, -1.5)
-    ];
-    
-    thrusterPositions.current = thrusters;
-    console.log('Thruster positions determined:', thrusters);
-  };
-  
   // Function to load banner texture
   const loadBanner = (loadingManager) => {
+    // Cache texture check
+    if (sharedResources.textures[bannerUrl]) {
+      console.log('Using cached banner texture:', bannerUrl);
+      createBannerWithTexture(sharedResources.textures[bannerUrl]);
+      return;
+    }
+    
     // DIRECT TEXTURE APPROACH - More reliable than using a loader
     const textureUrl = bannerUrl;
     console.log('Creating banner with texture URL:', textureUrl);
@@ -416,6 +363,9 @@ const AdSpaceship = forwardRef(function AdSpaceship({
         console.log('Banner texture loaded successfully:', textureUrl);
         loadedTextures.current.push(texture);
         
+        // Cache the texture for reuse
+        sharedResources.textures[bannerUrl] = texture;
+        
         // Update the banner material with the loaded texture
         if (bannerRef.current) {
           bannerRef.current.material.map = texture;
@@ -444,6 +394,9 @@ const AdSpaceship = forwardRef(function AdSpaceship({
             const fallbackTexture = new THREE.CanvasTexture(canvas);
             loadedTextures.current.push(fallbackTexture);
             
+            // Cache the fallback texture
+            sharedResources.textures[bannerUrl] = fallbackTexture;
+            
             if (bannerRef.current) {
               bannerRef.current.material.map = fallbackTexture;
               bannerRef.current.material.color.set(0xffffff);
@@ -459,9 +412,27 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     );
   };
   
+  // Function to create banner with already loaded texture
+  const createBannerWithTexture = (texture) => {
+    const bannerGeometry = new THREE.PlaneGeometry(6, 3);
+    const bannerMaterial = new THREE.MeshBasicMaterial({
+      map: texture,
+      side: THREE.DoubleSide,
+      transparent: true,
+    });
+    
+    const banner = new THREE.Mesh(bannerGeometry, bannerMaterial);
+    banner.position.set(0, 5, 0); // Positioned above ship
+    bannerRef.current = banner;
+    
+    if (spaceshipRef.current) {
+      spaceshipRef.current.add(banner);
+    }
+  };
+  
   // Function to add lights to the spacecraft
   const addLights = () => {
-    // Add lights with intensity based on performance
+    // Add ambient light with intensity based on performance
     const lightIntensity = performanceMode === 'high' ? 0.3 : 0.2;
     const ambientLight = new THREE.AmbientLight(0x404060, lightIntensity);
     if (spaceshipRef.current) {
@@ -487,280 +458,45 @@ const AdSpaceship = forwardRef(function AdSpaceship({
       followLightRef.current = followSpotlight;
     }
   };
-  
-  // Function to add engine flames
-  const addEngineFlames = () => {
-    if (thrusterPositions.current.length === 0) {
-      console.warn('No thruster positions found, using defaults');
-      // Default positions if none were found - at rear of model
-      thrusterPositions.current = [
-        new THREE.Vector3(15, 0, 0),  // CHANGED: Using positive X for back
-        new THREE.Vector3(15, 4, 1.5),
-        new THREE.Vector3(15, 0, 1.5),
-        new THREE.Vector3(15, -4, 1.5),
-        new THREE.Vector3(15, 3, -1.5),
-        new THREE.Vector3(15, 0, -1.5),
-        new THREE.Vector3(15, -3, -1.5)
-      ];
-    }
-    
-    // Create the main engine flame - use the first thruster position
-    const mainThrusterPos = thrusterPositions.current[0];
-    
-    // Create a flame geometry with more detail for better flames
-    // CHANGED: Using a modified cylinder for a horizontal flame
-    const flameLength = 12; // Longer flame
-    const flameGeometry = new THREE.CylinderGeometry(
-      0.1,  // radiusTop (narrow at the back)
-      2.0,  // radiusBottom (wide at the front)
-      flameLength, // height (length of flame)
-      16,  // radialSegments (detail)
-      1,   // heightSegments
-      true // open-ended
-    );
-    
-    // Rotate and position the flame to be horizontal and extend backwards from thruster
-    flameGeometry.rotateZ(Math.PI / 2); // Rotate to point along X axis
-    flameGeometry.translate(flameLength/2, 0, 0); // Center it and move it forward
-    
-    // Create advanced flame material
-    const flameMaterial = performanceMode === 'low' 
-      ? new THREE.MeshBasicMaterial({
-          color: 0xff5500,
-          transparent: true,
-          opacity: 0.7,
-          blending: THREE.AdditiveBlending,
-        })
-      : new THREE.ShaderMaterial({
-          uniforms: {
-            time: { value: 0 },
-            color1: { value: new THREE.Color(0xffff80) },
-            color2: { value: new THREE.Color(0xff4400) },
-            noiseScale: { value: 6.0 },
-            twistScale: { value: 2.0 },
-            enginePower: { value: 1.0 },
-          },
-          vertexShader: `
-            varying vec2 vUv;
-            varying vec3 vPosition;
-            
-            void main() {
-              vUv = uv;
-              vPosition = position;
-              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-          `,
-          fragmentShader: `
-            uniform float time;
-            uniform vec3 color1;
-            uniform vec3 color2;
-            uniform float noiseScale;
-            uniform float twistScale;
-            uniform float enginePower;
-            
-            varying vec2 vUv;
-            varying vec3 vPosition;
-            
-            // Simple noise function
-            float noise(vec3 p) {
-              return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
-            }
-            
-            void main() {
-              // Base gradient along X axis (for horizontal flame)
-              float gradient = 1.0 - abs(vPosition.x) / 6.0;
-              
-              // Add animated noise
-              float n = noise(vec3(vPosition.x * noiseScale, vPosition.y * noiseScale - time * 2.0, vPosition.z * noiseScale));
-              
-              // Add twist effect
-              float twist = sin(vPosition.x * twistScale + time * 3.0) * 0.2;
-              gradient += twist;
-              
-              // Add noise to gradient
-              gradient += n * 0.2;
-              
-              // Clamp and adjust by engine power
-              gradient = clamp(gradient * enginePower, 0.0, 1.0);
-              
-              // Mix colors based on gradient
-              vec3 color = mix(color1, color2, gradient);
-              
-              // Fade out at the end
-              float fadeOut = smoothstep(0.98, 1.0, abs(vPosition.x) / 6.0);
-              float alpha = (1.0 - fadeOut) * 0.8 * enginePower;
-              
-              gl_FragColor = vec4(color, alpha);
-            }
-          `,
-          transparent: true,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-        });
-    
-    // Create the flame mesh
-    const flame = new THREE.Mesh(flameGeometry, flameMaterial);
-    
-    // Position the flame exactly at the thruster position
-    flame.position.copy(mainThrusterPos);
-    
-    // IMPORTANT CHANGE: Push the flames much further to the right to align with the red thrusters
-    flame.position.x += 7.0; // Increased from 1.5 to 7.0
-    
-    engineFlameRef.current = flame;
-    
-    if (spaceshipRef.current) {
-      spaceshipRef.current.add(flame);
-    }
-    
-    // Create smaller thrusters if in higher performance modes and we have multiple thruster positions
-    if (performanceMode !== 'low' && thrusterPositions.current.length > 1) {
-      const smallFlames = [];
-      
-      // Create one flame for each additional thruster position
-      for (let i = 1; i < Math.min(thrusterPositions.current.length, 7); i++) {
-        // Small flame geometry - horizontal cylinder
-        const smallFlameLength = 7; // Shorter than main flame
-        const smallFlameGeometry = new THREE.CylinderGeometry(
-          0.05, // radiusTop
-          0.6,  // radiusBottom
-          smallFlameLength, // height
-          8,    // radialSegments
-          1,    // heightSegments
-          true  // open-ended
-        );
-        
-        // Rotate and position the flame to be horizontal
-        smallFlameGeometry.rotateZ(Math.PI / 2);
-        smallFlameGeometry.translate(smallFlameLength/2, 0, 0);
-        
-        const smallFlameMaterial = performanceMode === 'medium'
-          ? new THREE.MeshBasicMaterial({
-              color: 0xff8844,
-              transparent: true,
-              opacity: 0.6,
-              blending: THREE.AdditiveBlending,
-            })
-          : new THREE.ShaderMaterial({
-              uniforms: {
-                time: { value: 0 },
-                color1: { value: new THREE.Color(0xffff80) },
-                color2: { value: new THREE.Color(0xff4400) },
-                noiseScale: { value: 8.0 },
-                enginePower: { value: 1.0 },
-              },
-              vertexShader: `
-                varying vec2 vUv;
-                varying vec3 vPosition;
-                
-                void main() {
-                  vUv = uv;
-                  vPosition = position;
-                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-              `,
-              fragmentShader: `
-                uniform float time;
-                uniform vec3 color1;
-                uniform vec3 color2;
-                uniform float noiseScale;
-                uniform float enginePower;
-                
-                varying vec2 vUv;
-                varying vec3 vPosition;
-                
-                // Simple noise function
-                float noise(vec3 p) {
-                  return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
-                }
-                
-                void main() {
-                  // Base gradient along X axis (for horizontal flame)
-                  float gradient = 1.0 - abs(vPosition.x) / 3.5;
-                  
-                  // Add animated noise
-                  float n = noise(vec3(vPosition.x * noiseScale, vPosition.y * noiseScale - time * 3.0, vPosition.z * noiseScale));
-                  
-                  // Add noise to gradient
-                  gradient += n * 0.2;
-                  
-                  // Clamp and adjust by engine power
-                  gradient = clamp(gradient * enginePower, 0.0, 1.0);
-                  
-                  // Mix colors based on gradient
-                  vec3 color = mix(color1, color2, gradient);
-                  
-                  // Fade out at the end
-                  float fadeOut = smoothstep(0.98, 1.0, abs(vPosition.x) / 3.5);
-                  float alpha = (1.0 - fadeOut) * 0.7 * enginePower;
-                  
-                  gl_FragColor = vec4(color, alpha);
-                }
-              `,
-              transparent: true,
-              blending: THREE.AdditiveBlending,
-              depthWrite: false,
-              side: THREE.DoubleSide,
-            });
-        
-        const smallFlame = new THREE.Mesh(smallFlameGeometry, smallFlameMaterial);
-        
-        // Position at thruster and move much further right for proper alignment
-        smallFlame.position.copy(thrusterPositions.current[i]);
-        smallFlame.position.x += 7.0; // CHANGED: Increased from 1.0 to 7.0
-        
-        if (spaceshipRef.current) {
-          spaceshipRef.current.add(smallFlame);
-        }
-        
-        smallFlames.push(smallFlame);
-      }
-      
-      smallFlamesRef.current = smallFlames;
-    }
-    
-    // Add debug helpers if in debug mode
-    if (debugMode) {
-      // Add a visible marker at each thruster position
-      thrusterPositions.current.forEach((pos, index) => {
-        const markerGeometry = new THREE.SphereGeometry(0.3, 8, 8);
-        const markerMaterial = new THREE.MeshBasicMaterial({ 
-          color: index === 0 ? 0xff0000 : 0x00ff00,
-          wireframe: true
-        });
-        const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-        marker.position.copy(pos);
-        if (spaceshipRef.current) {
-          spaceshipRef.current.add(marker);
-        }
-      });
-    }
-  };
 
-  // Add smooth banner rotation to the useFrame function
+  // Add smooth banner rotation to the useFrame function with optimizations
   useFrame(({ clock, camera }) => {
     if (!spaceshipRef.current || !pathRef.current) return;
+
+    // Skip detailed updates for very distant spacecraft
+    const distanceToCamera = spaceshipRef.current.position.distanceTo(camera.position);
+    const isVeryDistant = distanceToCamera > 100;
+
+    // Throttle updates when very distant - more aggressive frame skipping
+    if (isVeryDistant) {
+      // Skip frames based on performance mode
+      const skipFrames = performanceMode === 'low' ? 5 : 
+                        performanceMode === 'medium' ? 3 : 2;
+      if (frameCount.current++ % skipFrames !== 0) {
+        return; // Skip this frame for distant objects
+      }
+    } else if (performanceMode === 'low' && frameCount.current++ % 2 !== 0) {
+      // Skip every other frame in low performance mode even when closer
+      return;
+    }
 
     const time = clock.getElapsedTime();
     const cycleTime = 60;
     const flyByDuration = 30;
     const elapsed = clock.getElapsedTime() % cycleTime;
 
-    // IMPORTANT CHANGE: Always make the ad visible when spacecraft is in view
-    // This ensures it stays visible across cycles
+    // Always make the ad visible when spacecraft is in view
     if (!adVisible && elapsed < flyByDuration) {
       setAdVisible(true);
     }
 
-    // Update banner rotation smoothly if banner group exists
-    if (bannerGroupRef.current && camera) {
+    // Only update banner rotation when not very distant
+    if (!isVeryDistant && bannerGroupRef.current && camera) {
       // Calculate the direction from banner to camera
       const bannerPos = new THREE.Vector3();
       bannerGroupRef.current.getWorldPosition(bannerPos);
       
       // Get the camera position on the same Y plane as the banner
-      // This restricts rotation to only horizontal movement
       const cameraHorizontal = new THREE.Vector3(
         camera.position.x,
         bannerPos.y, // Keep y the same as the banner
@@ -799,74 +535,35 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     }
 
     if (elapsed < flyByDuration) {
-      // Skip frames in low performance mode
-      if (performanceMode === 'low' && elapsed % 2 !== 0) return;
-      
+      // Get path position
       const t = elapsed / flyByDuration;
       const position = pathRef.current.getPointAt(t);
       spaceshipRef.current.position.copy(position);
 
+      // Properly orient the spaceship along path
       const tangent = pathRef.current.getTangentAt(t);
       spaceshipRef.current.lookAt(position.clone().add(tangent));
       spaceshipRef.current.rotateY(Math.PI / 2);
 
-      // Check if spacecraft is being hovered
-      const isHovering = checkIntersection();
-      if (isHovering !== hovered) {
-        setHovered(isHovering);
-        
-        // Change engine power during hover for visual feedback
-        if (isHovering) {
-          setEnginePower(1.5); // Boost engines when hovered
-        } else {
-          setEnginePower(1.0); // Normal engine power
+      // Check for hover only when close enough
+      if (distanceToCamera < 50) {
+        const isHovering = checkIntersection();
+        if (isHovering !== hovered) {
+          setHovered(isHovering);
         }
+      } else if (hovered) {
+        // Reset hover state when too far
+        setHovered(false);
       }
 
-      // Update flame effects
-      if (engineFlameRef.current && engineFlameRef.current.material) {
-        if (engineFlameRef.current.material.uniforms) {
-          // Update shader-based flame
-          engineFlameRef.current.material.uniforms.time.value = time;
-          engineFlameRef.current.material.uniforms.enginePower.value = enginePower;
-          
-          // Pulsate the flame length
-          const speedVariation = 1.0 + Math.sin(time * 4) * 0.2;
-          engineFlameRef.current.scale.x = 1 + (enginePower - 1) * 2 * speedVariation;
-        } else {
-          // Update simple material-based flame
-          engineFlameRef.current.scale.x = 1 + (enginePower - 1) * 1.5;
-        }
-      }
-      
-      // Update small thrusters
-      smallFlamesRef.current.forEach((flame, index) => {
-        if (flame && flame.material) {
-          if (flame.material.uniforms) {
-            // Update shader-based flame
-            flame.material.uniforms.time.value = time + index; // Offset for variation
-            flame.material.uniforms.enginePower.value = enginePower * (0.8 + Math.random() * 0.4);
-          }
-          
-          // Pulsate the small flame length
-          const pulseAmount = 0.8 + Math.sin(time * 5 + index * 2) * 0.2;
-          flame.scale.x = enginePower * pulseAmount;
-        }
-      });
-
-      // Adjust lighting based on distance only in medium/high performance modes
+      // Adjust lighting based on distance (only in higher performance modes)
       if (followLightRef.current && performanceMode !== 'low') {
-        const distanceToCamera = position.distanceTo(camera.position);
         const normalizedDistance = Math.min(Math.max(distanceToCamera / 50, 0.5), 1.5);
         followLightRef.current.intensity = 2.5 * normalizedDistance * qualityLevel;
       }
     } else {
-      // IMPORTANT CHANGE: Don't hide the spaceship completely, just move it offscreen
-      // This approach maintains its structure including the ad for the next cycle
+      // Move the spaceship offscreen but don't remove it completely
       spaceshipRef.current.position.set(-1000, -1000, -1000);
-      
-      // IMPORTANT CHANGE: Don't set adVisible to false here
-      // We want the ad to stay in memory for the next cycle
     }
   });
 
@@ -874,192 +571,160 @@ const AdSpaceship = forwardRef(function AdSpaceship({
     getPosition: () => spaceshipRef.current ? spaceshipRef.current.position : new THREE.Vector3(0, 0, -1000),
   }));
 
-  // UPDATED RETURN SECTION - Now matches Planet.jsx approach
-// This is the correct HTML banner section for AdSpaceship.jsx that preserves the clickable button
-
-// In the return() section of AdSpaceship.jsx, replace the current HTML banner with:
-
-return (
-  <group ref={spaceshipRef}>
-    {/* This is a fixed position banner directly attached to the spacecraft */}
-    <group position={[0, 8, -24]} ref={bannerGroupRef}>
-      {/* Tooltip that appears when hovering */}
-      {hovered && (
-        <Html position={[0, 3, 0]} center>
-          <div style={{
-            background: 'rgba(0, 0, 0, 0.7)',
-            color: 'white',
-            padding: '8px 12px',
-            borderRadius: '4px',
-            fontSize: '14px',
-            fontWeight: 'bold',
-            pointerEvents: 'none',
-            transform: 'translateY(-30px)',
-            whiteSpace: 'nowrap'
-          }}>
-            Click For Special Offer
-          </div>
-        </Html>
-      )}
-      
-      {/* Clickable banner - keep pointerEvents: 'all' to make it directly clickable */}
-      {adVisible && (
-        <Html
-          ref={htmlBannerRef}
-          position={[0, 0, 0]}
-          transform
-          center
-          distanceFactor={7}
-          zIndexRange={[100, 10000]}
-          sprite={false}
-          style={{
-            width: '300px',
-            height: '150px',
-            color: 'white',
-            display: 'flex',
-            padding: 0,
-            margin: 0,
-            pointerEvents: 'all', // Keep as 'all' to make it clickable
-            userSelect: 'none',
-          }}
-          onClick={(e) => {
-            // Event handler on the Html component itself as a fallback
-            e.stopPropagation();
-          }}
-        >
-          <button 
-            onClick={(e) => {
-              // Stop event propagation and prevent default browser behavior
-              e.preventDefault();
-              e.stopPropagation();
-              
-              console.log('SPACESHIP BANNER BUTTON CLICKED!');
-              
-              // Call the onShowModal function with the ad info
-              if (typeof onShowModal === 'function') {
-                onShowModal({
-                  adImage: bannerUrl,
-                  adLink: bannerLink,
-                  adTitle: bannerTitle || 'Space Travel Offer'
-                });
-                console.log('Modal function called with:', {
-                  adImage: bannerUrl,
-                  adLink: bannerLink,
-                  adTitle: bannerTitle || 'Space Travel Offer'
-                });
-              } else {
-                console.error('onShowModal is not a function:', onShowModal);
-                // Only as absolute fallback
-                window.open(bannerLink, '_blank');
-              }
-              
-              return false;
-            }}
-            style={{
-              width: '100%',
-              height: '100%',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'rgba(0, 20, 60, 0.8)',
-              backdropFilter: 'blur(5px)',
-              borderRadius: '10px',
-              padding: '10px 15px',
-              boxShadow: '0 0 20px rgba(80, 150, 255, 0.7)',
-              border: '1px solid rgba(100, 170, 255, 0.6)',
+  return (
+    <group ref={spaceshipRef}>
+      {/* Banner group for billboard rotation */}
+      <group position={[0, 8, -24]} ref={bannerGroupRef}>
+        {/* Tooltip that appears when hovering */}
+        {hovered && (
+          <Html position={[0, 3, 0]} center>
+            <div style={{
+              background: 'rgba(0, 0, 0, 0.7)',
               color: 'white',
-              fontFamily: 'Arial, sans-serif',
-              textAlign: 'center',
+              padding: '8px 12px',
+              borderRadius: '4px',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              pointerEvents: 'none',
+              transform: 'translateY(-30px)',
+              whiteSpace: 'nowrap'
+            }}>
+              Click For Special Offer
+            </div>
+          </Html>
+        )}
+        
+        {/* Banner with clickable button - only shown when close enough in lower performance modes */}
+        {adVisible && (
+          <Html
+            ref={htmlBannerRef}
+            position={[0, 0, 0]}
+            transform
+            center
+            distanceFactor={7}
+            zIndexRange={[100, 10000]}
+            sprite={false}
+            style={{
+              width: '300px',
+              height: '150px',
+              color: 'white',
+              display: 'flex',
+              padding: 0,
+              margin: 0,
+              pointerEvents: 'all', // Keep as 'all' to make it clickable
+              userSelect: 'none',
+            }}
+            onClick={(e) => {
+              // Event handler on the Html component itself as a fallback
+              e.stopPropagation();
             }}
           >
-           <div style={{
-  position: 'relative',
-  width: '100%',
-  padding: '15px', // Added padding around all content
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: 'rgba(0, 20, 60, 0.8)', // Added/emphasized the background
-  backdropFilter: 'blur(5px)',
-  borderRadius: '10px',
-  boxShadow: '0 0 20px rgba(80, 150, 255, 0.7)',
-  border: '1px solid rgba(100, 170, 255, 0.6)',
-  minHeight: '280px', // Minimum height for the container
-}}>
-  {/* Image with increased size */}
-  <img 
-    src="/ads/ad4.png"
-    alt="Beatclub Offer" 
-    style={{
-      width: '100%', // Full width
-      minHeight: '160px', // Taller minimum height
-      maxHeight: '180px', // Increased maximum height
-      objectFit: 'contain',
-      borderRadius: '8px',
-      marginBottom: '12px' // More space below image
-    }}
-  />
-  
-  {/* Updated primary text with larger font */}
-  <div style={{
-    fontSize: '18px', // Larger font size
-    fontWeight: 'bold',
-    textAlign: 'center',
-    lineHeight: '1.3',
-    marginBottom: '8px', // More space below
-    textShadow: '0 1px 1px rgba(0,0,0,0.6)',
-    padding: '0 10px' // Add some horizontal padding
-  }}>
-    Level up your creativity with Beatclub!
-  </div>
-  
-  {/* Updated secondary text */}
-  <div style={{ 
-    fontSize: '15px', // Slightly larger
-    maxWidth: '300px', // Wider text container
-    textAlign: 'center',
-    opacity: 0.9,
-    marginBottom: '14px' // More space below
-  }}>
-    An all-in-one solution for music creators.
-  </div>
-  
-  {/* Call to action button - larger and more prominent */}
-  <div style={{ 
-    marginTop: '8px', 
-    padding: '8px 20px', // Larger padding for a bigger button
-    background: 'rgba(30, 80, 200, 0.8)', 
-    borderRadius: '6px',
-    fontSize: '16px', // Larger font
-    fontWeight: 'bold',
-    boxShadow: '0 0 15px rgba(50, 120, 255, 0.6)',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    border: '1px solid rgba(100, 170, 255, 0.4)'
-  }}>
-    Learn More
-  </div>
-</div>
-          </button>
-          
-          <style jsx>{`
-            button {
-              animation: pulse 2s infinite ease-in-out;
-            }
-            @keyframes pulse {
-              0% { transform: scale(1); }
-              50% { transform: scale(1.05); }
-              100% { transform: scale(1); }
-            }
-          `}</style>
-        </Html>
-      )}
+            <button 
+              onClick={handleAdClick}
+              style={{
+                width: '100%',
+                height: '100%',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(0, 20, 60, 0.8)',
+                backdropFilter: 'blur(5px)',
+                borderRadius: '10px',
+                padding: '10px 15px',
+                boxShadow: '0 0 20px rgba(80, 150, 255, 0.7)',
+                border: '1px solid rgba(100, 170, 255, 0.6)',
+                color: 'white',
+                fontFamily: 'Arial, sans-serif',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{
+                position: 'relative',
+                width: '100%',
+                marginBottom: '8px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                {/* Image takes up almost all the space */}
+                <img 
+                  src="/ads/ad4.png"
+                  alt="Beatclub Offer" 
+                  style={{
+                    width: '95%', // Almost full width
+                    minHeight: '100px', // Ensure it has enough height
+                    maxHeight: '140px', // Limit maximum height
+                    objectFit: 'contain',
+                    borderRadius: '6px',
+                    marginBottom: '6px'
+                  }}
+                />
+                
+                {/* Only show text content in higher performance modes */}
+                {performanceMode !== 'low' && (
+                  <>
+                    {/* Primary text */}
+                    <div style={{
+                      fontSize: '16px',
+                      fontWeight: 'bold',
+                      textAlign: 'center',
+                      lineHeight: '1.3',
+                      marginBottom: '4px',
+                      textShadow: '0 1px 1px rgba(0,0,0,0.6)'
+                    }}>
+                      Level up your creativity with Beatclub!
+                    </div>
+                    
+                    {/* Secondary text - only in high performance mode */}
+                    {performanceMode === 'high' && (
+                      <div style={{ 
+                        fontSize: '14px', 
+                        maxWidth: '280px', 
+                        textAlign: 'center',
+                        opacity: 0.9
+                      }}>
+                        An all-in-one solution for music creators.
+                      </div>
+                    )}
+                  </>
+                )}
+                
+                {/* Call to action button - simplified in low performance mode */}
+                <div style={{ 
+                  marginTop: performanceMode === 'low' ? '5px' : '10px', 
+                  padding: '5px 15px', 
+                  background: 'rgba(30, 80, 200, 0.8)', 
+                  borderRadius: '5px',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  boxShadow: performanceMode === 'low' ? 'none' : '0 0 10px rgba(50, 120, 255, 0.5)',
+                }}>
+                  Learn More
+                </div>
+              </div>
+            </button>
+            
+            {/* Only use animation in higher performance modes */}
+            {performanceMode !== 'low' && (
+              <style jsx>{`
+                button {
+                  animation: pulse 2s infinite ease-in-out;
+                }
+                @keyframes pulse {
+                  0% { transform: scale(1); }
+                  50% { transform: scale(1.05); }
+                  100% { transform: scale(1); }
+                }
+              `}</style>
+            )}
+          </Html>
+        )}
+      </group>
     </group>
-  </group>
-);
+  );
 });
 
 export default AdSpaceship;

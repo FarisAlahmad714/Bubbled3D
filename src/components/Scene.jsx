@@ -1,11 +1,5 @@
 //Scene.jsx
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  forwardRef,
-  useImperativeHandle
-} from 'react';
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { OrbitControls, Stars } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { v4 as uuidv4 } from 'uuid';
@@ -17,6 +11,8 @@ import ParticleInteraction from './ParticleInteraction';
 import Lighting from './Lighting';
 import StarBase from './StarBase';
 import Planet from './Planet';
+import Earth from './Earth'; // Import our new Earth component
+import Astronaut from './Astronaut';
 import { FirstPersonControls } from 'three/examples/jsm/controls/FirstPersonControls.js';
 import { useAudioManager } from './AudioManager';
 
@@ -65,77 +61,6 @@ const getFogColor = (visualMode) => {
   }
 };
 
-//Function to create the Blue Planet
-function createBluePlanet(scene, position = [-75, 10, -50], size = 18) {
-  // Create the base sphere for the planet
-  const planetGeometry = new THREE.SphereGeometry(size, 32, 32);
-  const planetMaterial = new THREE.MeshPhongMaterial({
-    color: 0x1a56e8, // Blue color
-    emissive: 0x112244,
-    specular: 0x2233aa,
-    shininess: 30,
-    flatShading: false
-  });
-  
-  const planet = new THREE.Mesh(planetGeometry, planetMaterial);
-  
-  // Add atmosphere glow
-  const atmosphereGeometry = new THREE.SphereGeometry(size * 1.07, 32, 32); // 7% larger than planet
-  const atmosphereMaterial = new THREE.MeshPhongMaterial({
-    color: 0x4499ff,
-    transparent: true,
-    opacity: 0.3,
-    side: THREE.BackSide
-  });
-  
-  const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-  planet.add(atmosphere);
-  
-  // Add craters
-  const addCrater = (x, y, z, craterSize) => {
-    const craterGeometry = new THREE.CircleGeometry(craterSize, 20);
-    const craterMaterial = new THREE.MeshPhongMaterial({
-      color: 0x1a3366, // Darker blue for craters
-      emissive: 0x0a1a33,
-      side: THREE.DoubleSide
-    });
-    
-    const crater = new THREE.Mesh(craterGeometry, craterMaterial);
-    
-    // Position the crater on the surface of the sphere
-    const distance = size * 1.01; // Slightly above surface
-    crater.position.set(x, y, z).normalize().multiplyScalar(distance);
-    
-    // Make the crater face outward
-    crater.lookAt(0, 0, 0);
-    crater.rotateX(Math.PI);
-    
-    planet.add(crater);
-  };
-  
-  // Add multiple craters of different sizes
-  for (let i = 0; i < 15; i++) {
-    const phi = Math.acos((Math.random() * 2) - 1);
-    const theta = Math.random() * Math.PI * 2;
-    const x = Math.sin(phi) * Math.cos(theta);
-    const y = Math.sin(phi) * Math.sin(theta);
-    const z = Math.cos(phi);
-    const craterSize = 0.5 + Math.random() * 2.5;
-    
-    addCrater(x, y, z, craterSize);
-  }
-  
-  // Position the planet
-  planet.position.set(position[0], position[1], position[2]);
-  planet.name = "blue_planet"; // Specific name to avoid conflicts
-  
-  // Add to scene
-  scene.add(planet);
-  
-  console.log("Blue planet added to scene at position:", planet.position);
-  return planet;
-}
-
 const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdModal, ...props }, ref) {
   const [spheres, setSpheres] = useState([]);
   const [rings, setRings] = useState([]);
@@ -148,8 +73,9 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
   const activeSphereRef = useRef(null);
   const [orbColor, setOrbColor] = useState(new THREE.Color('#00FF66'));
   const freeControlsRef = useRef();
-  const bluePlanetRef = useRef(null);
-  
+  const astronautRef = useRef();
+  const astronautViewDistance = useRef(2); // Distance behind astronaut (0 for first person)
+  const isFirstPersonView = useRef(false); // Toggle between first and third person views
   // Get audio manager from context
   const audioManager = useAudioManager();
   const bufferLoadingStarted = useRef(false);
@@ -213,30 +139,6 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     }
   }, [audioManager.isReady]);
 
-  // Add the blue planet to the scene
-  useEffect(() => {
-    if (scene) {
-      // Check if we already have a blue planet
-      const existingPlanet = scene.getObjectByName("blue_planet");
-      if (!existingPlanet) {
-        // Position the blue planet far away from Jupiter at [0, 15, -56]
-        const bluePlanetPosition = [50, 35, -0];
-        const planet = createBluePlanet(scene, bluePlanetPosition, 18);
-        bluePlanetRef.current = planet;
-        console.log("Blue planet added to scene at position:", bluePlanetPosition);
-      } else {
-        bluePlanetRef.current = existingPlanet;
-      }
-    }
-    
-    // Cleanup when component unmounts
-    return () => {
-      if (bluePlanetRef.current && scene) {
-        scene.remove(bluePlanetRef.current);
-      }
-    };
-  }, [scene]);
-  
   const trackPositions = useRef({});
   const recordedEvents = useRef([]);
   const recordStart = useRef(0);
@@ -258,17 +160,22 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     );
   }, [visualMode, scene]);
 
+  // Update camera far plane to see distant Earth
+  useEffect(() => {
+    if (camera) {
+      camera.near = 0.1;
+      camera.far = 10000; // Increased from 1000 to 10000 to see distant Earth
+      camera.updateProjectionMatrix();
+      console.log('Updated camera far plane for Earth visibility');
+    }
+  }, [camera]);
+
   useFrame(({ clock }, delta) => {
     const time = clock.getElapsedTime();
     const now = Date.now();
 
-    // Rotate the blue planet
-    if (bluePlanetRef.current) {
-      bluePlanetRef.current.rotation.y += 0.0005;
-    }
-
     if (now - lastActiveTime.current > cameraParams.current.autoSwitchDelay) {
-      const modes = ['orbit', 'panorama', 'follow', 'free'];
+      const modes = ['orbit', 'panorama', 'follow', 'free', 'astronaut'];
       const currentIndex = modes.indexOf(cameraMode);
       const nextIndex = (currentIndex + 1) % modes.length;
       setCameraMode(modes[nextIndex]);
@@ -316,7 +223,49 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
       camera.position.lerp(cameraPositionRef.current, 0.01);
       camera.lookAt(0, 0, 0);
     }
-
+// Add to your useFrame function (after panorama mode)
+else if (cameraMode === 'astronaut' && astronautRef.current) {
+  // Astronaut camera mode
+  // Determine if we're in first-person or third-person view
+  let targetPosition;
+  
+  if (isFirstPersonView.current) {
+    // First-person view (from astronaut's eyes)
+    targetPosition = astronautRef.current.getFirstPersonPosition();
+    
+    // Get the direction the astronaut is looking
+    const lookDirection = astronautRef.current.getLookDirection();
+    
+    // Calculate a look-at point in front of the astronaut
+    const lookAtPoint = targetPosition.clone().add(lookDirection.multiplyScalar(10));
+    
+    // Smoothly transition camera position
+    camera.position.lerp(targetPosition, 0.05);
+    
+    // Smoothly look at the target point
+    cameraTargetRef.current.lerp(lookAtPoint, 0.05);
+    camera.lookAt(cameraTargetRef.current);
+  } else {
+    // Third-person view (behind astronaut)
+    targetPosition = astronautRef.current.getThirdPersonPosition(astronautViewDistance.current);
+    
+    // Get astronaut's position to look at
+    const astronautPosition = astronautRef.current.getWorldPosition();
+    
+    // Get look direction to calculate a point ahead of the astronaut
+    const lookDirection = astronautRef.current.getLookDirection();
+    const lookAheadPoint = astronautPosition.clone().add(
+      lookDirection.multiplyScalar(5) // Look ahead of astronaut
+    );
+    
+    // Smoothly transition camera position
+    camera.position.lerp(targetPosition, 0.05);
+    
+    // Smoothly look at the point ahead of the astronaut
+    cameraTargetRef.current.lerp(lookAheadPoint, 0.05);
+    camera.lookAt(cameraTargetRef.current);
+  }
+}
     setRings(prevRings =>
       prevRings.map(ring => {
         const age = (now - ring.createdAt) / ring.lifetime;
@@ -467,11 +416,26 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
       }
     }
     if (e.key === 'c') {
-      const modes = ['orbit', 'follow', 'panorama', 'free'];
+      const modes = ['orbit', 'follow', 'panorama', 'free', 'astronaut'];
       const currentIndex = modes.indexOf(cameraMode);
       const nextIndex = (currentIndex + 1) % modes.length;
       setCameraMode(modes[nextIndex]);
       lastActiveTime.current = Date.now();
+    }
+    if (e.key === 'v' && cameraMode === 'astronaut') {
+      isFirstPersonView.current = !isFirstPersonView.current;
+      console.log(`Switching to ${isFirstPersonView.current ? 'first' : 'third'} person view`);
+    }
+    
+    // In astronaut mode, use + and - to adjust view distance (in third-person)
+    if (cameraMode === 'astronaut' && !isFirstPersonView.current) {
+      if (e.key === '+' || e.key === '=') {
+        // Zoom in (reduce distance)
+        astronautViewDistance.current = Math.max(1, astronautViewDistance.current - 0.5);
+      } else if (e.key === '-' || e.key === '_') {
+        // Zoom out (increase distance)
+        astronautViewDistance.current = Math.min(10, astronautViewDistance.current + 0.5);
+      }
     }
   }
 
@@ -490,12 +454,6 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
       }
     };
   }, [cameraMode, camera]);
-
-  useEffect(() => {
-    camera.near = 0.1;
-    camera.far = 1000;
-    camera.updateProjectionMatrix();
-  }, [camera]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -567,7 +525,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
   }
 
   function toggleCameraMode() {
-    const modes = ['orbit', 'follow', 'panorama', 'free'];
+    const modes = ['orbit', 'follow', 'panorama', 'free', 'astronaut'];
     const currentIndex = modes.indexOf(cameraMode);
     const nextIndex = (currentIndex + 1) % modes.length;
     setCameraMode(modes[nextIndex]);
@@ -588,6 +546,19 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     // Update performance settings if needed
   }
 
+  // Add these helper functions before useImperativeHandle
+// Toggle astronaut first/third person view
+function toggleAstronautView(isFirstPerson) {
+  if (cameraMode === 'astronaut') {
+    isFirstPersonView.current = isFirstPerson;
+  }
+}
+
+// Set astronaut view distance (for third-person)
+function setAstronautViewDistance(distance) {
+  astronautViewDistance.current = Math.max(1, Math.min(10, distance));
+}
+
   useImperativeHandle(ref, () => ({
     createSphereAndPlaySound,
     startRecording,
@@ -602,6 +573,10 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     getSoundIntensity: () => soundIntensity.current,
     getCurrentCameraMode: () => cameraMode,
     clearSoundsForTrack,
+    toggleAstronautView,
+    setAstronautViewDistance,
+    isAstronautFirstPerson: () => isFirstPersonView.current,
+    getAstronautViewDistance: () => astronautViewDistance.current,
     getKeyData: () => keyData,
     logCameraInfo: () => {
       return {
@@ -630,6 +605,15 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
 
   return (
     <>
+      {/* Add the Earth component below everything in the scene */}
+      <Earth
+        modelPath="/models/rock.glb" // Use your actual Earth model path
+        visualMode={visualMode}
+        scale={750}
+        position={[0, -800, 0]}
+        rotation={[0, Math.PI, 0]}
+      />
+    
       <Planet
         modelPath="/models/planet3.glb"
         visualMode={visualMode}
@@ -640,20 +624,30 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
         adTitle="Explore New Worlds"
         ringTextContent="YOUR AD HERE!"
         onShowModal={onShowAdModal} // Pass the modal handler to Planet
-      />
+      /> 
+      
       <Environment soundIntensity={soundIntensity.current} visualMode={visualMode} />
       {cameraMode === 'orbit' && (
         <OrbitControls
           enableZoom={true}
           enablePan={true}
-          maxDistance={50}
+          maxDistance={1000} // Increased to allow seeing Earth in the distance
           minDistance={1}
           enableDamping
           dampingFactor={0.05}
           target={[0, 0, 0]}
           autoRotate={false}
+          maxPolarAngle={Math.PI} // Allow looking straight down to see Earth
         />
       )}
+<Astronaut 
+  ref={astronautRef}
+  visualMode={visualMode}
+  orbitRadius={20}
+  orbitHeight={5}
+  floatSpeed={0.015}   
+  scale={5}
+/>
       <Lighting
         soundIntensity={soundIntensity.current}
         orbColor={orbColor}

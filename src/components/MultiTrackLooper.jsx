@@ -6,7 +6,7 @@ import { useAudioManager } from './AudioManager';
 const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref) {
   const [tracks, setTracks] = useState([]);
   const [trackOrder, setTrackOrder] = useState([]);
-  const [minimized, setMinimized] = useState(false);
+  const [minimized, setMinimized] = useState(true);
   const [bpm, setBpm] = useState(120);
   const [masterVolume, setMasterVolume] = useState(0);
   const [viewMode, setViewMode] = useState('timeline');
@@ -1048,7 +1048,10 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
 
   return (
     <>
-      <div style={containerStyle}>
+       <div 
+      data-tour-target="multitracklooper"  // Add this line
+      style={containerStyle}
+    >
         <div style={headerStyle} onClick={toggleMinimized}>
           <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 'bold' }}>
             Multi-Track Looper
