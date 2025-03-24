@@ -77,6 +77,7 @@ function App() {
   
   // Mobile-specific states
   const [deviceInfo, setDeviceInfo] = useState(() => detectMobileDevice());
+  const [keyboardVisible, setKeyboardVisible] = useState(true);
   
   // Add state for the guided tour
   const [showTour, setShowTour] = useState(false);
@@ -118,6 +119,21 @@ function App() {
       looperRef.current.recordKeyPress(key);
     }
   };
+
+  // Toggle keyboard visibility
+  const toggleKeyboard = () => {
+    setKeyboardVisible(prev => !prev);
+    // Store preference in localStorage
+    localStorage.setItem('keyboardVisible', (!keyboardVisible).toString());
+  };
+
+  // Load keyboard visibility preference
+  useEffect(() => {
+    const savedVisibility = localStorage.getItem('keyboardVisible');
+    if (savedVisibility !== null) {
+      setKeyboardVisible(savedVisibility === 'true');
+    }
+  }, []);
 
   // Check if user has seen the guided tour before
   useEffect(() => {
@@ -414,37 +430,85 @@ function App() {
     }
   }
 
-  // Portrait mode warning component
-  const PortraitModeWarning = ({ isPortrait, isPhone }) => {
-    const [dismissed, setDismissed] = useState(false);
-    
-    if (!isPhone || !isPortrait || dismissed) return null;
+  // FIXED: Portrait mode warning component with persistent dismissal
+  // Completely rewritten PortraitModeWarning with permanent dismissal
+const PortraitModeWarning = ({ isPortrait, isPhone }) => {
+  // Instead of useState, we'll only use a ref to avoid re-rendering issues
+  const dismissedRef = useRef(false);
   
-    return (
-      <div className="portrait-message">
-        <div style={{ fontSize: '24px', marginBottom: '1rem' }}>
-          ↺ Rotate Your Device ↻
-        </div>
-        <p>
-          For the best experience with the sound keyboard,
-          please rotate your device to landscape mode.
-        </p>
-        <button 
-          onClick={() => setDismissed(true)}
-          style={{
-            marginTop: '1rem',
-            padding: '10px 20px',
-            background: 'rgba(80, 120, 220, 0.8)',
-            border: 'none',
-            borderRadius: '20px',
-            color: 'white'
-          }}
-        >
-          Continue Anyway
-        </button>
-      </div>
-    );
+  // On first render only, check if previously dismissed
+  useEffect(() => {
+    // Check both localStorage and sessionStorage for maximum reliability
+    if (localStorage.getItem('portraitWarningDismissed') === 'true' || 
+        sessionStorage.getItem('portraitWarningDismissed') === 'true') {
+      dismissedRef.current = true;
+      // Force a re-render to immediately hide the warning
+      forceUpdate({});
+    }
+  }, []);
+  
+  // Use forceUpdate to trigger re-renders only when needed
+  const [, forceUpdate] = useState({});
+  
+  const handleDismiss = () => {
+    // Set the ref first
+    dismissedRef.current = true;
+    
+    // Store in BOTH localStorage and sessionStorage for redundancy
+    localStorage.setItem('portraitWarningDismissed', 'true');
+    sessionStorage.setItem('portraitWarningDismissed', 'true');
+    
+    // Force update to hide the warning
+    forceUpdate({});
   };
+  
+  // If any condition is false, don't show the warning
+  if (!isPhone || !isPortrait || dismissedRef.current) return null;
+  
+  return (
+    <div className="portrait-message" style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      background: 'rgba(0, 10, 30, 0.9)',
+      backdropFilter: 'blur(5px)',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 9999,  // Higher than anything else
+      padding: '20px',
+      textAlign: 'center',
+      color: 'white'
+    }}>
+      <div style={{ fontSize: '24px', marginBottom: '1rem' }}>
+        ↺ Rotate Your Device ↻
+      </div>
+      <p>
+        For the best experience with the sound keyboard,
+        please rotate your device to landscape mode.
+      </p>
+      <button 
+        onClick={handleDismiss}
+        style={{
+          marginTop: '1rem',
+          padding: '15px 30px', // Increased tap target
+          background: 'rgba(80, 120, 220, 0.8)',
+          border: 'none',
+          borderRadius: '30px',
+          color: 'white',
+          fontSize: '16px', // Larger text
+          fontWeight: 'bold',
+          boxShadow: '0 0 15px rgba(80, 120, 255, 0.4)',
+        }}
+      >
+        Continue Anyway
+      </button>
+    </div>
+  );
+};
 
   // Optimized bubbles that don't reset
   const OptimizedBubbles = () => {
@@ -725,6 +789,38 @@ function App() {
       : '1px solid rgba(60, 80, 140, 0.3)',
     transition: 'all 0.2s ease'
   });
+
+  // NEW: Keyboard toggle button component
+  const KeyboardToggle = () => {
+    if (!deviceInfo.isMobile && !deviceInfo.hasTouch) return null;
+
+    return (
+      <div
+        onClick={toggleKeyboard}
+        style={{
+          position: 'fixed',
+          bottom: keyboardVisible ? 'auto' : '20px',
+          right: '20px',
+          width: '50px',
+          height: '50px',
+          borderRadius: '50%',
+          background: 'rgba(60, 80, 170, 0.8)',
+          color: 'white',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '24px',
+          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.3)',
+          cursor: 'pointer',
+          zIndex: 1001, // Higher than other elements
+          border: '2px solid rgba(100, 150, 255, 0.5)',
+          animation: keyboardVisible ? 'none' : 'pulse 2s infinite'
+        }}
+      >
+        {keyboardVisible ? '▼' : '▲'}
+      </div>
+    );
+  };
   
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -1030,7 +1126,10 @@ function App() {
       )}
   
       <MultiTrackLooper sceneRef={sceneRef} ref={looperRef} />
-     {/*<DebugUI sceneRef={sceneRef} spacecraftRefs={spacecraftRefsArray.current} />*/}
+      {/*<DebugUI sceneRef={sceneRef} spacecraftRefs={spacecraftRefsArray.current} />*/}
+      
+      {/* Add the Keyboard Toggle Button */}
+      <KeyboardToggle />
       
       {/* Mobile Controls - Only shown on mobile/touch devices */}
       {(deviceInfo.isMobile || deviceInfo.hasTouch) && (
@@ -1038,6 +1137,8 @@ function App() {
           sceneRef={sceneRef}
           isMobile={deviceInfo.isMobile}
           onTriggerSound={handleMobileSoundTrigger}
+          isVisible={keyboardVisible}
+          onToggleVisibility={toggleKeyboard}
         />
       )}
     </div>
