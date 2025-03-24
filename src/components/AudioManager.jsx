@@ -577,6 +577,65 @@ export function AudioManagerProvider({ children }) {
     return new Blob([arrayBuffer], { type: 'audio/wav' });
   }
   
+  // New method for welcome audio: Play a one-shot sound that isn't part of the key data
+  const playOneShot = (src, options = {}) => {
+    const { volume = 0.75, loop = false, onend = null, onload = null, onerror = null } = options;
+    
+    console.log(`Playing one-shot sound: ${src}`);
+    
+    if (useFallbackAudio.current) {
+      return playWithHowler(src, { volume, pan: 0, trackId: 'oneshot' });
+    }
+    
+    try {
+      // Create a new dedicated Howl instance for this one-shot
+      const sound = new Howl({
+        src: [src],
+        volume,
+        loop,
+        autoplay: true,
+        onend,
+        onload,
+        onloaderror: (id, err) => {
+          console.error(`Failed to load one-shot audio: ${src}`, err);
+          if (onerror) onerror(err);
+        }
+      });
+      
+      // Store reference for potential stopping
+      const soundId = `oneshot_${Date.now()}`;
+      howlCache.current[soundId] = sound;
+      
+      return sound;
+    } catch (err) {
+      console.error(`Error playing one-shot sound ${src}:`, err);
+      return null;
+    }
+  };
+  
+  // New method for welcome audio: Stop a specific sound by src/id
+  const stopSound = (src) => {
+    // First try to find exact match in howlCache
+    if (howlCache.current[src]) {
+      console.log(`Stopping sound with exact match: ${src}`);
+      howlCache.current[src].stop();
+      return true;
+    }
+    
+    // If not found by exact key, try to find by src url
+    for (const key in howlCache.current) {
+      const howl = howlCache.current[key];
+      if (howl._src && howl._src.includes(src)) {
+        console.log(`Stopping sound by source match: ${src}`);
+        howl.stop();
+        return true;
+      }
+    }
+    
+    console.log(`Could not find sound to stop: ${src}`);
+    return false;
+  };
+  
   // Context value for the provider
   const value = {
     isReady,
@@ -590,7 +649,10 @@ export function AudioManagerProvider({ children }) {
     startRecording,
     stopRecording,
     exportToWav,
-    useFallbackAudio: useFallbackAudio.current
+    useFallbackAudio: useFallbackAudio.current,
+    // Add the new methods for welcome audio
+    playOneShot,
+    stopSound
   };
   
   return (

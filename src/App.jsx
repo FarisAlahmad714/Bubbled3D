@@ -10,6 +10,7 @@ import EnhancedBubblesTitle from './components/EnhancedBubblesTitle';
 import { AudioManagerProvider, useAudioManager } from './components/AudioManager';
 import AdModal from './components/AdModal'; 
 import GuidedTour from './components/GuidedTour'; // Import the new GuidedTour component
+import SubtitledWelcomeText from './components/SubtitledWelcomeText';
 
 
 // Performance preset configurations
@@ -63,6 +64,8 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
+  // New state for welcome audio
+  const [welcomeAudioPlayed, setWelcomeAudioPlayed] = useState(false);
   
   // Add state for the guided tour
   const [showTour, setShowTour] = useState(false);
@@ -94,7 +97,23 @@ function App() {
     }
   }, [entered]);
   
-
+  // Play welcome audio when loading is complete
+  useEffect(() => {
+    // Only play welcome audio if loading is complete, we haven't entered the main experience,
+    // and we haven't played it yet
+    if (!isLoading && !entered && !welcomeAudioPlayed && audioManager.isReady) {
+      console.log('Playing welcome audio with synchronized subtitles...');
+      
+      // Play welcome audio using AudioManager
+      audioManager.playOneShot('/Sounds/welcome.mp3', { 
+        volume: 0.75,
+        onend: () => setWelcomeAudioPlayed(true)
+      });
+      
+      // Mark as played so it doesn't repeat
+      setWelcomeAudioPlayed(true);
+    }
+  }, [isLoading, entered, welcomeAudioPlayed, audioManager.isReady]);
   // Handler to complete the tour
   const handleTourComplete = () => {
     console.log('Tour completion handler called');
@@ -294,6 +313,11 @@ function App() {
   };
 
   async function handleEnterClick() {
+    // Stop welcome audio if it's still playing
+    if (audioManager.stopSound) {
+      audioManager.stopSound('/sounds/welcome.mp3');
+    }
+    
     // Initialize audio context
     try {
       await audioManager.forceResumeAudio();
@@ -406,27 +430,25 @@ function App() {
             {/* Enhanced artistic title that won't reset */}
             <EnhancedBubblesTitle />
             
-            {/* Enhanced description */}
-            <p className="description">
-              Welcome to a dynamic 3D audio-visual experience. Press keys to create sounds and visual elements,
-              record sequences, and watch as the environment responds to your music.
-            </p>
-           
-            {/* Enhanced enter button */}
-            <div className="enter-button-container">
-              <button 
-                className="enter-button" 
-                onClick={handleEnterClick}
-              >
-                Begin Journey
-              </button>
+            {/* Welcome text with subtitles */}
+            <div className="welcome-container">
+              <SubtitledWelcomeText duration={21} />
+              
             </div>
+              <div className="enter-button-container">
+                <button 
+                  className="enter-button" 
+                  onClick={handleEnterClick}
+                >
+                  Begin Journey
+                </button>
+              </div>          
           </>
         )}
       </div>
     );
   }
-
+  
   const controlsStyle = {
     position: 'absolute',
     top: 0,
@@ -443,7 +465,7 @@ function App() {
     pointerEvents: showControls ? 'auto' : 'none',
     borderBottom: '1px solid rgba(80, 120, 220, 0.3)'
   };
-
+  
   const buttonStyle = {
     padding: '0.5rem 1rem',
     margin: '0 0.3rem',
@@ -455,29 +477,29 @@ function App() {
     fontSize: '0.9rem',
     
   };
-
+  
   const activeButtonStyle = {
     ...buttonStyle,
     background: 'rgba(60, 100, 200, 0.8)',
     boxShadow: '0 0 10px rgba(80, 150, 255, 0.5)'
   };
-
+  
   const sliderContainerStyle = {
     display: 'flex',
     alignItems: 'center',
     margin: '0 1rem'
   };
-
+  
   const sliderLabelStyle = {
     marginRight: '0.5rem',
     fontSize: '0.9rem'
   };
-
+  
   const buttonGroupStyle = {
     display: 'flex',
     alignItems: 'center'
   };
-
+  
   const fpsCounterStyle = {
     position: 'absolute',
     bottom: '20px',
@@ -489,7 +511,7 @@ function App() {
     fontSize: '0.9rem',
     zIndex: 11
   };
-
+  
   const helpButtonStyle = {
     position: 'absolute',
     bottom: '20px',
@@ -507,7 +529,7 @@ function App() {
     zIndex: 11,
     boxShadow: '0 0 10px rgba(100, 150, 255, 0.5)'
   };
-
+  
   const performanceButtonStyle = {
     position: 'absolute',
     bottom: '20px',
@@ -525,7 +547,7 @@ function App() {
     zIndex: '11',
     boxShadow: '0 0 10px rgba(100, 150, 255, 0.5)'
   };
-
+  
   const popupStyle = {
     position: 'absolute',
     bottom: '70px',
@@ -542,7 +564,7 @@ function App() {
     overflowY: 'auto',
     border: '1px solid rgba(80, 120, 220, 0.3)'
   };
-
+  
   const performanceOptionStyle = (mode) => ({
     padding: '0.5rem 0.8rem',
     margin: '0.5rem 0',
@@ -559,7 +581,7 @@ function App() {
       : '1px solid rgba(60, 80, 140, 0.3)',
     transition: 'all 0.2s ease'
   });
-
+  
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
       <Canvas 
@@ -588,10 +610,10 @@ function App() {
           onShowAdModal={handleShowAdModal}
         />
       </Canvas>
-
+  
       {/* Guided Tour Component */}
       <GuidedTour isFirstVisit={showTour} onComplete={handleTourComplete} />
-
+  
       {/* Ad Modal - Rendered outside the Canvas */}
       {adModalInfo && (
         <AdModal
@@ -601,7 +623,7 @@ function App() {
           adTitle={adModalInfo.adTitle}
         />
       )}
-
+  
       <div style={controlsStyle}>
         <div style={buttonGroupStyle}>
           
@@ -671,11 +693,11 @@ function App() {
           </div>
         </div>
       </div>
-
+  
       <div style={fpsCounterStyle}>
         {fps} FPS
       </div>
-
+  
       <div 
         style={performanceButtonStyle} 
         onClick={togglePerformancePopup}
@@ -683,7 +705,7 @@ function App() {
       >
         ⚙️
       </div>
-
+  
       <div 
         style={helpButtonStyle} 
         onClick={toggleHelpPopup}
@@ -800,7 +822,7 @@ function App() {
             <li style={{ margin: '0.3rem 0' }}>Keys A-S-D-F: Additional sound options</li>
             <li style={{ margin: '0.3rem 0' }}>Press C: Toggle camera modes</li>
           </ul>
-
+  
           <h3 style={{ borderBottom: '1px solid rgba(80, 120, 220, 0.3)', paddingBottom: '0.5rem', marginTop: '1rem' }}>
             Tips:
           </h3>
@@ -829,7 +851,7 @@ function App() {
           </button>
         </div>
       )}
-
+  
       <MultiTrackLooper sceneRef={sceneRef} ref={looperRef} />
       <DebugUI sceneRef={sceneRef} spacecraftRefs={spacecraftRefsArray.current} />
     </div>

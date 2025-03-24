@@ -59,7 +59,7 @@ const EnhancedBubblesTitle = () => {
   return (
     <div className="title-container" ref={titleContainerRef}>
       <h1 className="title">
-        {'Bubbled'.split('').map((char, index) => {
+        {'Bubbled Nebula'.split('').map((char, index) => {
           // Special styling for 'B' and 'd' characters to look like bubbles
           const isBubbleChar = char === 'B' || char === 'd';
           return (
