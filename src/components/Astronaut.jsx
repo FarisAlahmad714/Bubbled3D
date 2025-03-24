@@ -1,8 +1,9 @@
-/// Astronaut.jsx - With slower, more realistic space movement and camera support
+// Astronaut.jsx - Performance-optimized with orb focus (Fixed Version)
 import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+import { usePerformance } from './PerformanceOptimizer'; // Adjust path as needed
 
 const Astronaut = forwardRef(({
   modelPath = '/models/astro.glb',
@@ -22,6 +23,10 @@ const Astronaut = forwardRef(({
   const [modelLoaded, setModelLoaded] = useState(false);
   const [loadError, setLoadError] = useState(null);
   
+  // IMPORTANT: Get performance settings at component level (not inside useFrame)
+  // This fixes the "Invalid hook call" error
+  const performance = usePerformance();
+  
   // Animation parameters with much slower values
   const animationRef = useRef({
     time: Math.random() * 1000, // Random starting time for variety
@@ -31,6 +36,7 @@ const Astronaut = forwardRef(({
     bobHeight: 0.3,     // Subtle height variation
     driftPhase: Math.random() * Math.PI * 2, // Random drift phase
     driftAmplitude: orbitRadius * driftFactor, // Subtle drift from perfect circle
+    lastUpdateTime: 0
   });
   
   // Expose methods and properties for camera control
@@ -57,7 +63,7 @@ const Astronaut = forwardRef(({
       cameraPos.sub(direction.multiplyScalar(distance));
       
       // Lift camera up slightly for better view
-      cameraPos.y += 0.3 * scale;
+      cameraPos.y += 0.1 * scale;
       
       return cameraPos;
     },
@@ -372,64 +378,84 @@ const Astronaut = forwardRef(({
     }
   };
   
-  // Animate the astronaut - with slow, realistic space movement
+  // Fixed animation with performance scaling - no hooks inside useFrame!
   useFrame((state) => {
-    if (groupRef.current) {
-      // Update time very slowly for realistic space movement
-      animationRef.current.time += state.clock.elapsedTime * 0.0008 * floatSpeed;
-      const t = animationRef.current.time;
-      
-      // Add slight drift to orbit path for realistic space movement
-      const driftX = Math.sin(t * 0.2 + animationRef.current.driftPhase) * animationRef.current.driftAmplitude;
-      const driftZ = Math.cos(t * 0.3 + animationRef.current.driftPhase) * animationRef.current.driftAmplitude;
-      
-      // Calculate position on circular path with very subtle bobbing
-      const x = Math.sin(t) * orbitRadius + driftX;
-      const z = Math.cos(t) * orbitRadius + driftZ;
-      const y = orbitHeight + Math.sin(t * animationRef.current.bobSpeed) * animationRef.current.bobHeight;
-      
-      // Update position (with smoothing for inertia effect)
-      groupRef.current.position.lerp(new THREE.Vector3(x, y, z), 0.03);
-      
-      // Calculate rotation to face tangent to the orbit path (realistic space movement)
-      // This creates the effect of drifting along the orbit without always facing center
-      const tangentAngle = t + Math.PI * 0.5;
-      const lookAtX = Math.sin(tangentAngle) * 5 + groupRef.current.position.x;
-      const lookAtZ = Math.cos(tangentAngle) * 5 + groupRef.current.position.z;
-      
-      // Sometimes face center, sometimes face tangent direction
-      const lookTarget = new THREE.Vector3(
-        t % 20 < 10 ? 0 : lookAtX,
-        groupRef.current.position.y,
-        t % 20 < 10 ? 0 : lookAtZ
-      );
-      
-      // Smooth rotation toward target (slow turning in space)
-      const currentRotation = new THREE.Euler().copy(groupRef.current.rotation);
-      
-      // Create a temporary object to calculate target rotation
-      const tempObj = new THREE.Object3D();
-      tempObj.position.copy(groupRef.current.position);
-      tempObj.lookAt(lookTarget);
-      
-      // Interpolate toward target rotation very slowly
-      groupRef.current.quaternion.slerp(tempObj.quaternion, 0.002);
-      
-      // Update look direction reference
-      lookDirectionRef.current.set(0, 0, -1); // Forward direction in local space
-      
-      // Add very subtle random rotation (astronaut slightly adrift)
-      groupRef.current.rotation.x += Math.sin(t * 0.05) * 0.0005;
-      groupRef.current.rotation.z += Math.sin(t * 0.07) * 0.0008;
-      
-      // If model is loaded, add some extremely slow tumbling movement
-      if (modelRef.current) {
-        // Very slow rotation like an object drifting in space
-        modelRef.current.rotation.x = Math.sin(t * 0.04) * 0.02;
-        modelRef.current.rotation.y = Math.sin(t * 0.03) * 0.03;
-        modelRef.current.rotation.z = Math.sin(t * 0.02) * 0.01;
-      }
+    if (!groupRef.current) return;  // Early return to avoid unnecessary calculations
+    
+    // Access performance settings from the component level variable
+    const performanceMode = performance?.performanceMode || 'medium';
+    const qualityLevel = performance?.qualityLevel || 0.8;
+    
+    // For low-end devices, we'll update position less frequently
+    // Using timestamp comparison instead of modulo for smoother results
+    const now = state.clock.elapsedTime;
+    const updateFrequency = performanceMode === 'low' ? 0.05 : 0.01; // Seconds between updates
+    
+    if (now - animationRef.current.lastUpdateTime < updateFrequency && performanceMode === 'low') {
+      return; // Skip this frame for low performance mode
     }
+    
+    // Store last update time
+    animationRef.current.lastUpdateTime = now;
+    
+    // Scale animation speed based on quality level
+    const timeIncrement = state.clock.elapsedTime * 0.0009 * floatSpeed * 
+                         (performanceMode === 'high' ? 1 : 0.8);
+    animationRef.current.time += timeIncrement;
+    const t = animationRef.current.time;
+    
+    // Calculate orbit position - scale complexity based on performance
+    let x, y, z;
+    
+    if (performanceMode === 'low') {
+      // Simpler calculation for low performance mode
+      x = Math.sin(t) * orbitRadius;
+      z = Math.cos(t) * orbitRadius;
+      y = orbitHeight;
+    } else {
+      // More complex calculation with drift for medium/high
+      const driftScale = qualityLevel * 0.7; // Scale drift based on quality
+      const driftX = Math.sin(t * 0.2 + animationRef.current.driftPhase) * 
+                    animationRef.current.driftAmplitude * driftScale;
+      const driftZ = Math.cos(t * 0.3 + animationRef.current.driftPhase) * 
+                    animationRef.current.driftAmplitude * driftScale;
+      
+      x = Math.sin(t) * orbitRadius + driftX;
+      z = Math.cos(t) * orbitRadius + driftZ;
+      y = orbitHeight + Math.sin(t * animationRef.current.bobSpeed) * 
+         animationRef.current.bobHeight * driftScale;
+    }
+    
+    // Use direct position updates for low performance, smoother lerp for high
+    if (performanceMode === 'low') {
+      groupRef.current.position.set(x, y, z);
+    } else {
+      // Adapt lerp factor based on performance - smoother on high-end
+      const lerpFactor = performanceMode === 'high' ? 0.02 : 0.04;
+      groupRef.current.position.lerp(new THREE.Vector3(x, y, z), lerpFactor);
+    }
+    
+    // MOST IMPORTANT PART: Make astronaut face the orb
+    // This is the critical part to fix the "astronaut not turned and focus on the orb" issue
+    const dx = -x; // Vector from astronaut to center (x component)
+    const dz = -z; // Vector from astronaut to center (z component)
+    const angle = Math.atan2(dx, dz);
+    groupRef.current.rotation.y = angle + Math.PI;
+    
+    // Only apply model animation if quality level allows it
+    if (modelRef.current && qualityLevel > 0.5) {
+      // Scale animation amount based on quality level
+      const animScale = qualityLevel * 0.5;
+      modelRef.current.rotation.x = Math.sin(t * 0.04) * 0.01 * animScale;
+      modelRef.current.rotation.y = Math.sin(t * 0.03) * 0.01 * animScale;
+      modelRef.current.rotation.z = Math.sin(t * 0.02) * 0.005 * animScale;
+    } else if (modelRef.current) {
+      // Reset rotations on low quality to avoid calculation
+      modelRef.current.rotation.set(0, 0, 0);
+    }
+    
+    // Update look direction reference to match our rotation
+    lookDirectionRef.current.set(0, 0, -1);
   });
   
   return (

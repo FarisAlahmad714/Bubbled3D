@@ -1,209 +1,74 @@
-// GuidedTour.jsx - Performance optimized version
-import React, { useState, useEffect, useRef } from 'react';
-import '../App.css';
+// GuidedTour.jsx - Ultra-lightweight performance version
+import React, { useState, useEffect } from 'react';
 
-// Tour steps with selectors to find the actual elements
+// Simplified tour steps without selectors
 const TOUR_STEPS = [
   {
     id: 'welcome',
     title: 'Welcome to Bubbles 3D',
-    description: 'This interactive experience lets you create music and visuals. Lets explore the main features!',
-    selector: null, // No specific element, full-screen intro
-    position: 'center',
+    description: 'This interactive experience lets you create music and visuals. Let\'s explore the main features!',
+    position: 'center'
   },
   {
     id: 'multitracklooper',
     title: 'Multi-Track Looper',
     description: 'Create musical loops by recording sequences of keypresses. Layer multiple tracks to build complex compositions.',
-    selector: '[data-tour-target="multitracklooper"]',
-    position: 'bottom',
-    skipHighlight: true, // Skip the expensive highlight for this step
+    position: 'bottom'
   },
   {
     id: 'camera-mode',
     title: 'Camera Controls',
     description: 'Change your perspective with different camera modes. "Orbit" circles the scene, "Follow" tracks moving elements.',
-    selector: 'button', // Will look for buttons containing "Camera:"
-    buttonText: 'Camera:',
-    position: 'bottom',
+    position: 'top'
   },
   {
     id: 'camera-speed',
     title: 'Camera Speed',
     description: 'Adjust how quickly the camera moves and rotates through the environment.',
-    selector: 'input[type="range"]', // The slider element
-    position: 'bottom',
+    position: 'top'
   },
   {
     id: 'visual-mode',
     title: 'Visual Themes',
     description: 'Switch between different visual themes that change colors and effects.',
-    selector: 'button', // Will look for buttons containing "Visual:"
-    buttonText: 'Visual:',
-    position: 'bottom',
+    position: 'top'
   },
   {
     id: 'performance',
     title: 'Performance Settings',
     description: 'Optimize for your device by adjusting graphics quality. Choose "Low" for better performance or "High" for maximum visual quality.',
-    selector: 'div[title="Performance Settings"]', // The settings gear
-    position: 'left',
+    position: 'left'
   },
   {
     id: 'keyboard',
     title: 'Keyboard Controls',
     description: 'Press keys 1-6, Q-W-E, and A-S-D-F to create sounds and visual elements. Each key plays a different sound and creates unique spheres in the scene.',
-    selector: null, // No specific element for keyboard controls
-    position: 'center',
+    position: 'center'
   },
   {
     id: 'conclusion',
     title: 'Ready to Begin!',
     description: 'Experiment, create, and enjoy the experience. You can revisit this guide anytime by clicking the Help (?) button.',
-    selector: null, // Changed to null to ensure it shows in the center
-    position: 'center',
+    position: 'center'
   },
 ];
 
+// Predefined positions for tooltips (no dynamic positioning)
+const POSITIONS = {
+  'center': { top: '40%', left: '50%', transform: 'translate(-50%, -50%)' },
+  'top': { top: '80px', left: '50%', transform: 'translateX(-50%)' },
+  'bottom': { bottom: '80px', left: '50%', transform: 'translateX(-50%)' },
+  'left': { top: '40%', left: '80px', transform: 'translateY(-50%)' }
+};
+
 const GuidedTour = ({ isFirstVisit, onComplete }) => {
-  // Define all hooks at the top level - NEVER conditionally
   const [currentStep, setCurrentStep] = useState(0);
   const [visible, setVisible] = useState(false);
-  const [targetElement, setTargetElement] = useState(null);
-  const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 });
-  const [elementRect, setElementRect] = useState(null);
   
-  // Refs for positioning calculations
-  const tooltipRef = useRef(null);
-  const highlightRef = useRef(null);
-  const positioningTimeoutRef = useRef(null);
-  
-  // Initialize on mount and when isFirstVisit changes
+  // Initialize visibility
   useEffect(() => {
-    console.log('GuidedTour: Setting visibility based on isFirstVisit =', isFirstVisit);
     setVisible(isFirstVisit);
   }, [isFirstVisit]);
-  
-  // Find and highlight the current target element
-  useEffect(() => {
-    if (!visible) return;
-    
-    const step = TOUR_STEPS[currentStep];
-    console.log('Processing step:', step.id);
-    
-    // Reset target element
-    setTargetElement(null);
-    setElementRect(null);
-    
-    // Clear any existing timeout
-    if (positioningTimeoutRef.current) {
-      clearTimeout(positioningTimeoutRef.current);
-    }
-    
-    // Position for center steps
-    const centerTooltip = () => {
-      const windowWidth = window.innerWidth;
-      const windowHeight = window.innerHeight;
-      
-      setTooltipPosition({
-        left: windowWidth / 2 - 175, // half of estimated tooltip width
-        top: windowHeight / 2 - 100,  // half of estimated tooltip height
-      });
-    };
-    
-    // No element to highlight for intro/center steps
-    if (!step.selector || step.position === 'center') {
-      centerTooltip();
-      return;
-    }
-    
-    // Use a small delay before trying to find the element
-    // This can help reduce continuous DOM queries
-    positioningTimeoutRef.current = setTimeout(() => {
-      // Try to find the element
-      let element = null;
-      
-      // Special case for buttons with specific text
-      if (step.buttonText) {
-        const buttons = document.querySelectorAll(step.selector);
-        for (const button of buttons) {
-          if (button.textContent.includes(step.buttonText)) {
-            element = button;
-            break;
-          }
-        }
-      } 
-      // Handle array of selectors (try multiple selectors)
-      else if (Array.isArray(step.selector)) {
-        for (const selector of step.selector) {
-          const foundElement = document.querySelector(selector);
-          if (foundElement) {
-            element = foundElement;
-            console.log('Found element with selector:', selector);
-            break;
-          }
-        }
-      }
-      else {
-        // Standard selector
-        element = document.querySelector(step.selector);
-      }
-      
-      if (element) {
-        console.log('Found element:', element);
-        setTargetElement(element);
-        
-        // Get element position - only do this once and save the result
-        const rect = element.getBoundingClientRect();
-        setElementRect(rect);
-        
-        // Calculate tooltip position
-        const tooltipWidth = 350;  // Estimated tooltip width
-        const tooltipHeight = 180; // Estimated tooltip height
-        const padding = 20;        // Space between element and tooltip
-        
-        // Calculate tooltip position based on specified position
-        let left, top;
-        switch (step.position) {
-          case 'top':
-            left = rect.left + rect.width / 2 - tooltipWidth / 2;
-            top = rect.top - tooltipHeight - padding;
-            break;
-          case 'bottom':
-            left = rect.left + rect.width / 2 - tooltipWidth / 2;
-            top = rect.bottom + padding;
-            break;
-          case 'left':
-            left = rect.left - tooltipWidth - padding;
-            top = rect.top + rect.height / 2 - tooltipHeight / 2;
-            break;
-          case 'right':
-            left = rect.right + padding;
-            top = rect.top + rect.height / 2 - tooltipHeight / 2;
-            break;
-          default:
-            left = rect.left + rect.width / 2 - tooltipWidth / 2;
-            top = rect.bottom + padding;
-        }
-        
-        // Keep tooltip within window bounds
-        left = Math.max(padding, Math.min(window.innerWidth - tooltipWidth - padding, left));
-        top = Math.max(padding, Math.min(window.innerHeight - tooltipHeight - padding, top));
-        
-        setTooltipPosition({ left, top });
-      } else {
-        console.log('Element not found for selector:', step.selector);
-        // Fallback to center position
-        centerTooltip();
-      }
-    }, 50); // Small delay to reduce impact
-    
-    return () => {
-      if (positioningTimeoutRef.current) {
-        clearTimeout(positioningTimeoutRef.current);
-      }
-    };
-  }, [currentStep, visible]);
   
   const handleNextStep = () => {
     if (currentStep < TOUR_STEPS.length - 1) {
@@ -220,114 +85,54 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
   };
 
   const handleComplete = () => {
-    console.log('GuidedTour: Tour completed');
     setVisible(false);
     if (onComplete) onComplete();
   };
 
-  // Only render the content if visible
-  if (!visible) {
-    return null;
-  }
+  // Only render if visible
+  if (!visible) return null;
 
   const step = TOUR_STEPS[currentStep];
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === TOUR_STEPS.length - 1;
-
-  // Determine if this is a full-screen/center step
-  const isCenterStep = step.position === 'center' || !step.selector;
-
-  // Should we show the highlight (expensive)
-  const shouldShowHighlight = targetElement && !isCenterStep && !step.skipHighlight && elementRect;
+  const position = POSITIONS[step.position];
 
   return (
-    <div 
+    <div
       style={{
         position: 'fixed',
         top: 0,
         left: 0,
         width: '100%',
         height: '100%',
+        backgroundColor: 'rgba(0, 5, 20, 0.75)',
         zIndex: 9999,
-        pointerEvents: 'none', // Let clicks through by default
+        overflow: 'hidden',
+        pointerEvents: 'auto',
       }}
+      onClick={handleComplete}
     >
-      {/* Semi-transparent backdrop - less expensive than a massive box-shadow */}
-      <div 
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'rgba(0, 5, 20, 0.75)',
-          backdropFilter: 'blur(2px)',
-          pointerEvents: 'auto', // Capture clicks on the backdrop
-        }}
-        onClick={handleComplete}
-      />
-      
-      {/* Highlight around target element if one exists - performance optimized */}
-      {shouldShowHighlight && (
-        <div
-          ref={highlightRef}
-          style={{
-            position: 'absolute',
-            top: elementRect.top - 5,
-            left: elementRect.left - 5,
-            width: elementRect.width + 10,
-            height: elementRect.height + 10,
-            borderRadius: '5px',
-            border: '2px solid rgba(120, 180, 255, 0.8)',
-            // Use a simpler box-shadow without the massive spread
-            boxShadow: '0 0 15px rgba(120, 180, 255, 0.8)',
-            pointerEvents: 'none',
-            zIndex: 10000,
-          }}
-        />
-      )}
-      
-      {/* Optional cutout for target elements instead of massive box-shadow */}
-      {targetElement && !isCenterStep && step.skipHighlight && elementRect && (
-        <div
-          style={{
-            position: 'absolute',
-            top: elementRect.top - 10,
-            left: elementRect.left - 10,
-            width: elementRect.width + 20,
-            height: elementRect.height + 20,
-            border: '2px dashed rgba(120, 180, 255, 0.8)',
-            borderRadius: '6px',
-            pointerEvents: 'none',
-            zIndex: 10000,
-          }}
-        />
-      )}
-      
-      {/* Tooltip with step information */}
+      {/* Simple tooltip with fixed positioning */}
       <div
-        ref={tooltipRef}
         style={{
           position: 'absolute',
-          left: `${tooltipPosition.left}px`,
-          top: `${tooltipPosition.top}px`,
-          width: '350px',
-          backgroundColor: 'rgba(15, 25, 50, 0.95)',
+          ...position,
+          width: '300px',
+          backgroundColor: 'rgba(15, 25, 50, 0.9)',
           borderRadius: '8px',
-          padding: '16px 20px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+          padding: '16px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
           border: '1px solid rgba(100, 150, 255, 0.4)',
           zIndex: 10001,
-          pointerEvents: 'auto', // Make tooltip interactive
+          pointerEvents: 'auto',
         }}
-        onClick={(e) => e.stopPropagation()} // Prevent clicks from closing the tour
+        onClick={(e) => e.stopPropagation()}
       >
         <h2 
           style={{
             color: 'rgba(120, 180, 255, 1)',
             margin: '0 0 12px 0',
             fontSize: '18px',
-            fontWeight: 600,
           }}
         >
           {step.title}
@@ -351,12 +156,8 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
             alignItems: 'center',
           }}
         >
-          <div 
-            style={{
-              display: 'flex',
-              gap: '6px',
-            }}
-          >
+          {/* Simple dots for step indication */}
+          <div style={{ display: 'flex', gap: '5px' }}>
             {TOUR_STEPS.map((_, index) => (
               <div 
                 key={index}
@@ -374,12 +175,7 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
             ))}
           </div>
           
-          <div 
-            style={{
-              display: 'flex',
-              gap: '8px',
-            }}
-          >
+          <div style={{ display: 'flex', gap: '8px' }}>
             {!isFirstStep && (
               <button 
                 style={{
@@ -406,7 +202,6 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
                 padding: '6px 12px',
                 cursor: 'pointer',
                 fontSize: '13px',
-                fontWeight: isLastStep ? 500 : 400,
               }}
               onClick={handleNextStep}
             >

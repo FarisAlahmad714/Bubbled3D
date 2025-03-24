@@ -222,50 +222,55 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
       cameraPositionRef.current.set(panoramaX, panoramaY, panoramaZ);
       camera.position.lerp(cameraPositionRef.current, 0.01);
       camera.lookAt(0, 0, 0);
+    } else if (cameraMode === 'astronaut' && astronautRef.current) {
+      // Astronaut camera mode
+      // Determine if we're in first-person or third-person view
+      let targetPosition;
+      
+      if (isFirstPersonView.current) {
+        // First-person view (from astronaut's eyes)
+        targetPosition = astronautRef.current.getFirstPersonPosition();
+        
+        // Get the direction the astronaut is looking
+        const lookDirection = astronautRef.current.getLookDirection();
+        
+        // Calculate a look-at point in front of the astronaut
+        const lookAtPoint = targetPosition.clone().add(lookDirection.multiplyScalar(10));
+        
+        // Smoothly transition camera position
+        camera.position.lerp(targetPosition, 0.05);
+        
+        // Smoothly look at the target point
+        cameraTargetRef.current.lerp(lookAtPoint, 0.05);
+        camera.lookAt(cameraTargetRef.current);
+      } else {
+        // Third-person view (behind astronaut)
+        targetPosition = astronautRef.current.getThirdPersonPosition(astronautViewDistance.current);
+        
+        // Move camera up to see the feet better
+        targetPosition.y += 2;
+        
+        // Get astronaut's position to look at
+        const astronautPosition = astronautRef.current.getWorldPosition();
+        
+        // Get look direction to calculate a point ahead of the astronaut
+        const lookDirection = astronautRef.current.getLookDirection();
+        const lookAheadPoint = astronautPosition.clone().add(
+          lookDirection.multiplyScalar(5) // Look ahead of astronaut
+        );
+        
+        // Aim camera slightly downward
+        lookAheadPoint.y -= 1;
+        
+        // Smoothly transition camera position
+        camera.position.lerp(targetPosition, 0.05);
+        
+        // Smoothly look at the point ahead of the astronaut
+        cameraTargetRef.current.lerp(lookAheadPoint, 0.05);
+        camera.lookAt(cameraTargetRef.current);
+      }
     }
-// Add to your useFrame function (after panorama mode)
-else if (cameraMode === 'astronaut' && astronautRef.current) {
-  // Astronaut camera mode
-  // Determine if we're in first-person or third-person view
-  let targetPosition;
   
-  if (isFirstPersonView.current) {
-    // First-person view (from astronaut's eyes)
-    targetPosition = astronautRef.current.getFirstPersonPosition();
-    
-    // Get the direction the astronaut is looking
-    const lookDirection = astronautRef.current.getLookDirection();
-    
-    // Calculate a look-at point in front of the astronaut
-    const lookAtPoint = targetPosition.clone().add(lookDirection.multiplyScalar(10));
-    
-    // Smoothly transition camera position
-    camera.position.lerp(targetPosition, 0.05);
-    
-    // Smoothly look at the target point
-    cameraTargetRef.current.lerp(lookAtPoint, 0.05);
-    camera.lookAt(cameraTargetRef.current);
-  } else {
-    // Third-person view (behind astronaut)
-    targetPosition = astronautRef.current.getThirdPersonPosition(astronautViewDistance.current);
-    
-    // Get astronaut's position to look at
-    const astronautPosition = astronautRef.current.getWorldPosition();
-    
-    // Get look direction to calculate a point ahead of the astronaut
-    const lookDirection = astronautRef.current.getLookDirection();
-    const lookAheadPoint = astronautPosition.clone().add(
-      lookDirection.multiplyScalar(5) // Look ahead of astronaut
-    );
-    
-    // Smoothly transition camera position
-    camera.position.lerp(targetPosition, 0.05);
-    
-    // Smoothly look at the point ahead of the astronaut
-    cameraTargetRef.current.lerp(lookAheadPoint, 0.05);
-    camera.lookAt(cameraTargetRef.current);
-  }
-}
     setRings(prevRings =>
       prevRings.map(ring => {
         const age = (now - ring.createdAt) / ring.lifetime;
@@ -643,7 +648,7 @@ function setAstronautViewDistance(distance) {
 <Astronaut 
   ref={astronautRef}
   visualMode={visualMode}
-  orbitRadius={20}
+  orbitRadius={8}
   orbitHeight={5}
   floatSpeed={0.015}   
   scale={5}
