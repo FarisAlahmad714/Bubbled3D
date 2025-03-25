@@ -109,6 +109,7 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
   // Get audio manager from context
   const audioManager = useAudioManager();
   const bufferLoadingStarted = useRef(false);
+  const recentSoundRegistry = useRef(new Map());
 
   // Performance tracking
   const lastPerformanceMode = useRef(performanceMode);
@@ -430,11 +431,35 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     return ringId;
   }
 
-  function createSphereAndPlaySound(k, trackId = null, isRecorded = false) {
+  // Updated function with skipAudio parameter
+  function createSphereAndPlaySound(k, trackId = null, skipAudio = false, isRecorded = false) {
     const effectiveSettings = dynamicSettings || (props.performanceSettings || performancePresets[performanceMode]);
     
     if (!keyData[k] || (spheres.length >= effectiveSettings.maxSpheres && !isRecorded)) return null;
     lastActiveTime.current = Date.now();
+    
+    // Create a unique sound ID to prevent duplicates
+    const now = Date.now();
+    const soundId = `${k}_${now}`;
+    
+    // Check if this sound was recently played (within 50ms)
+    const recentSounds = Array.from(recentSoundRegistry.current.keys());
+    const isDuplicate = recentSounds.some(id => {
+      const [key, timestamp] = id.split('_');
+      return key === k && (now - parseInt(timestamp)) < 50;
+    });
+    
+    // If this is a duplicate sound within 50ms, skip audio playback
+    // but still create visuals
+    const shouldSkipAudio = skipAudio || isDuplicate;
+    
+    // Add to registry and set timeout to remove
+    if (!shouldSkipAudio) {
+      recentSoundRegistry.current.set(soundId, true);
+      setTimeout(() => {
+        recentSoundRegistry.current.delete(soundId);
+      }, 100); // Cleanup after 100ms
+    }
     
     let position;
     if (trackId && isRecorded) {
@@ -514,17 +539,14 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
       createRingEffect(position, sphereColor, trackId);
     }
     
-    // Play sound unless it should be silent (used for recorded events)
-    const silent = isRecorded && trackId;
-    
-    if (!silent && audioManager.isReady) {
-      // Use the centralized audio manager to play sounds
+    // Only play audio if we're not skipping it
+    if (!shouldSkipAudio && audioManager.isReady) {
       audioManager.playSound(k, keyData, {
         volume: 0.8 + (soundIntensity.current * 0.2)
       });
     }
     
-    // Update sound intensity
+    // Update sound intensity for visual effects
     soundIntensity.current += 0.3;
     if (soundIntensity.current > 1) soundIntensity.current = 1;
     peakIntensity.current = Math.max(peakIntensity.current, soundIntensity.current);
@@ -629,24 +651,58 @@ const Scene = forwardRef(function Scene({ spacecraftRefs, visualMode, onShowAdMo
     const evs = recordedEvents.current;
     if (!evs.length) return 0;
     const totalDuration = evs[evs.length - 1].offset;
+    
+    // Get current audio context time as a precise reference point
+    const startTime = audioManager.audioContext.currentTime;
+    
+    // Schedule all sounds precisely against this reference time
     evs.forEach(ev => {
-      const tId = setTimeout(() => {
-        createSphereAndPlaySound(ev.key, null, true);
-      }, ev.offset);
-      timeoutsAndIntervals.current.push(tId);
+      // Calculate exact time to play this sound
+      const exactTime = startTime + (ev.offset / 1000);
+      
+      // If you're using Tone.js
+      Tone.Transport.schedule((time) => {
+        // Play sound with precise timing
+        if (sceneRef && sceneRef.current) {
+          // Use Tone.Draw for visual timing
+          Tone.Draw.schedule(() => {
+            sceneRef.current.createSphereAndPlaySound(ev.key, null, false, true);
+          }, time);
+        }
+      }, exactTime);
     });
+    
     return totalDuration;
   }
 
   function startLoop() {
     if (isLooping) return;
     setIsLooping(true);
-    const dur = playOnce();
-    if (dur <= 0) return;
-    const intervalId = setInterval(() => {
-      playOnce();
-    }, dur);
-    timeoutsAndIntervals.current.push(intervalId);
+    
+    const evs = recordedEvents.current;
+    if (!evs.length) return;
+    
+    const totalDuration = evs[evs.length - 1].offset / 1000; // Convert to seconds
+    
+    // Create a Tone.js Sequence with precise timing
+    const sequence = new Tone.Sequence(
+      (time, event) => {
+        // Use the exact time provided by Tone.js
+        if (sceneRef && sceneRef.current) {
+          Tone.Draw.schedule(() => {
+            sceneRef.current.createSphereAndPlaySound(event.key, null, false, true);
+          }, time);
+        }
+      },
+      evs.map(ev => ({ time: ev.offset / 1000, key: ev.key })),
+      totalDuration // Duration determines loop length
+    );
+    
+    sequence.loop = true;
+    sequence.start(0);
+    
+    // Store for cleanup
+    loopSequenceRef.current = sequence;
   }
 
   function stopLoop() {

@@ -16,6 +16,9 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   const [quantize, setQuantize] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
+  
+  // Track played sound events to prevent duplicates during recording
+  const recentSoundEvents = useRef(new Map());
 
   // Get audio manager from context
   const audioManager = useAudioManager();
@@ -25,6 +28,7 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   const patterns = useRef({});
   const playbackPositions = useRef({});
   const patternInProgress = useRef(new Set());
+  const isFirstKeyInRecording = useRef(true);
 
   useEffect(() => {
     tracksRef.current = tracks;
@@ -286,6 +290,9 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     ensureAudioInitialized().then(ready => {
       if (!ready) return;
       
+      // Reset first key flag when starting a new recording
+      isFirstKeyInRecording.current = true;
+      
       // Track recording event with Firebase Analytics
       trackRecording();
       console.log('Recording event tracked with Firebase Analytics');
@@ -334,89 +341,100 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
         } : t
       );
     });
+    
+    // Clear recent sound events cache after recording stops
+    recentSoundEvents.current.clear();
   }
 
-  function playSound(key, trackId, time = undefined, skipVisual = false) {
-    if (!keyData[key]) {
-      console.error(`No sound data found for key: ${key}`);
-      return false;
+  // In MultiTrackLooper.jsx
+function playSound(key, trackId, time = undefined, skipVisual = false) {
+  if (!keyData[key]) {
+    console.error(`No sound data found for key: ${key}`);
+    return false;
+  }
+  
+  try {
+    // Get track if available
+    const track = tracks.find(t => t.id === trackId);
+    if (!track) {
+      console.warn(`No track found for ID ${trackId}, playing without track context`);
+      return audioManager.playSound(key, keyData, {});
     }
-    
-    try {
-      const soundEventId = time ? `${trackId}_${key}_${Math.floor(time * 1000)}` : `${trackId}_${key}_${Math.floor(performance.now())}`;
-      
-      // Get track if available
-      const track = tracks.find(t => t.id === trackId);
-      if (!track) {
-        console.warn(`No track found for ID ${trackId}, playing without track context`);
-        return audioManager.playSound(key, keyData, {});
-      }
-  
-      const isMuted = track.muted;
-      const anySoloed = tracks.some(t => t.soloed);
-      const isSoloed = track.soloed;
-      const shouldBeSilent = isMuted || (anySoloed && !isSoloed);
-      if (shouldBeSilent && !time) return false;
-  
-      // Handle visual effects
-      if (!skipVisual && sceneRef && sceneRef.current) {
-        if (time !== undefined) {
-          Tone.Draw.schedule(() => sceneRef.current.createSphereAndPlaySound(key, trackId, false), time);
-        } else {
-          sceneRef.current.createSphereAndPlaySound(key, trackId, false);
-        }
-      }
-  
-      // Play the sound with appropriate volume and pan
+
+    const isMuted = track.muted;
+    const anySoloed = tracks.some(t => t.soloed);
+    const isSoloed = track.soloed;
+    const shouldBeSilent = isMuted || (anySoloed && !isSoloed);
+    if (shouldBeSilent && !time) return false;
+
+    // Handle visual effects - always create visual regardless of audio
+    if (!skipVisual && sceneRef && sceneRef.current) {
       if (time !== undefined) {
-        // For scheduled sounds, we need to use Tone.js transport
-        const scheduledTime = Tone.now() + time;
-        Tone.Transport.schedule(() => {
-          if (!shouldBeSilent) {
-            audioManager.playSound(key, keyData, {
-              trackId,
-              volume: Math.pow(10, track.volume / 20),
-              pan: track.pan || 0
-            });
-          }
-        }, scheduledTime);
-        return true;
+        Tone.Draw.schedule(() => sceneRef.current.createSphereAndPlaySound(key, trackId, false), time);
       } else {
-        // For immediate playback
-        return audioManager.playSound(key, keyData, {
-          trackId,
-          volume: shouldBeSilent ? 0 : Math.pow(10, track.volume / 20),
-          pan: track.pan || 0
-        });
+        sceneRef.current.createSphereAndPlaySound(key, trackId, false);
       }
-    } catch (err) {
-      console.error(`Unexpected error in playSound for ${key}:`, err);
-      return false;
-    }
-  }
-
-  function createEventPattern(events, trackId) {
-    if (!events || !events.length) return null;
-    const playableEvents = events.filter(ev => !ev.isMarker);
-    if (playableEvents.length === 0) return null;
-
-    if (patternInProgress.current.has(trackId)) {
-      console.log(`Pattern already exists for track ${trackId}, reusing`);
-      return patterns.current[trackId];
     }
 
-    const pattern = new Tone.Part((time, event) => {
-      playSound(event.key, trackId, time, false);
-    }, playableEvents.map(ev => [ev.offset / 1000, { key: ev.key, offset: ev.offset }]));
-    
-    pattern.loop = true;
-    const loopEndMarker = events.find(ev => ev.isMarker && ev.key === 'loop-end');
-    pattern.loopEnd = (loopEndMarker ? loopEndMarker.offset : events[events.length - 1].offset) / 1000 + 0.05;
-    patternInProgress.current.add(trackId);
-    
-    console.log(`Created pattern for track ${trackId} with ${playableEvents.length} events, loopEnd: ${pattern.loopEnd}s`);
-    return pattern;
+    // Play the sound (this is now the ONLY place audio gets played)
+    if (time !== undefined) {
+      // For scheduled sounds, use Tone.js transport
+      const scheduledTime = Tone.now() + time;
+      Tone.Transport.schedule(() => {
+        if (!shouldBeSilent) {
+          audioManager.playSound(key, keyData, {
+            trackId,
+            volume: Math.pow(10, track.volume / 20),
+            pan: track.pan || 0
+          });
+        }
+      }, scheduledTime);
+      return true;
+    } else {
+      // For immediate playback
+      return audioManager.playSound(key, keyData, {
+        trackId,
+        volume: shouldBeSilent ? 0 : Math.pow(10, track.volume / 20),
+        pan: track.pan || 0
+      });
+    }
+  } catch (err) {
+    console.error(`Unexpected error in playSound for ${key}:`, err);
+    return false;
   }
+}
+
+  // In MultiTrackLooper.jsx, modify the createEventPattern function
+function createEventPattern(events, trackId) {
+  if (!events || !events.length) return null;
+  const playableEvents = events.filter(ev => !ev.isMarker);
+  if (playableEvents.length === 0) return null;
+
+  if (patternInProgress.current.has(trackId)) {
+    console.log(`Pattern already exists for track ${trackId}, reusing`);
+    return patterns.current[trackId];
+  }
+
+  // Use Tone.js precise scheduling instead of setTimeout
+  const pattern = new Tone.Part((time, event) => {
+    playSound(event.key, trackId, time, false);
+  }, playableEvents.map(ev => [ev.offset / 1000, { key: ev.key, offset: ev.offset }]));
+  
+  pattern.loop = true;
+  
+  // Make sure loop duration is precisely calculated
+  const loopEndMarker = events.find(ev => ev.isMarker && ev.key === 'loop-end');
+  const loopDuration = (loopEndMarker ? loopEndMarker.offset : events[events.length - 1].offset) / 1000;
+  pattern.loopEnd = loopDuration + 0.01; // Add a tiny buffer
+  
+  // For more precise timing, set start position to exactly 0
+  pattern.start(0);
+  
+  patternInProgress.current.add(trackId);
+  
+  console.log(`Created pattern for track ${trackId} with ${playableEvents.length} events, loopEnd: ${pattern.loopEnd}s`);
+  return pattern;
+}
 
   async function startLoop(trackId) {
     const ready = await ensureAudioInitialized();
@@ -541,8 +559,11 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   }
 
   useImperativeHandle(ref, () => ({
+    // Then update recordKeyPress function
     recordKeyPress(key) {
       const now = performance.now();
+      
+      // Focus solely on recording the event - don't worry about audio
       setTracks(prev => prev.map(track => {
         if (!track.isRecording) return track;
         let offset = now - track.recordStartTime;
@@ -553,8 +574,16 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
         console.log(`Recorded key ${key} on track ${track.id} at offset ${offset}ms`);
         return { ...track, events: [...track.events, { offset, key }] };
       }));
+      
+      // Find recording track
       const recordingTrack = tracks.find(t => t.isRecording);
-      if (recordingTrack) playSound(key, recordingTrack.id);
+      if (recordingTrack) {
+        // Always have Scene handle both visuals AND audio
+        // Make Scene the single source of truth for sound playback
+        if (sceneRef && sceneRef.current) {
+          sceneRef.current.createSphereAndPlaySound(key, recordingTrack.id, false, false);
+        }
+      }
     },
     addNewTrack() {
       return addTrack();

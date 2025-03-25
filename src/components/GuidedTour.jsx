@@ -1,20 +1,21 @@
-// GuidedTour.jsx - Performance optimized version
-import React, { useState, useEffect, useRef } from 'react';
+// GuidedTour.jsx - Mobile-optimized version
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import '../App.css';
 
 // Tour steps with selectors to find the actual elements
+// Add mobile-specific instructions and positions
 const TOUR_STEPS = [
   {
     id: 'welcome',
     title: 'Welcome to Bubbles 3D',
-    description: 'This interactive experience lets you create music and visuals. Lets explore the main features!',
+    description: 'This interactive experience lets you create music and visuals. Tap through to explore the main features!',
     selector: null, // No specific element, full-screen intro
     position: 'center',
   },
   {
     id: 'multitracklooper',
     title: 'Multi-Track Looper',
-    description: 'Create musical loops by recording sequences of keypresses. Layer multiple tracks to build complex compositions.',
+    description: 'Create musical loops by recording sound sequences. Layer multiple tracks to build compositions.',
     selector: '[data-tour-target="multitracklooper"]',
     position: 'bottom',
     skipHighlight: true, // Skip the expensive highlight for this step
@@ -22,7 +23,7 @@ const TOUR_STEPS = [
   {
     id: 'camera-mode',
     title: 'Camera Controls',
-    description: 'Change your perspective with different camera modes. "Orbit" circles the scene, "Follow" tracks moving elements.',
+    description: 'Change your view with different camera modes. "Orbit" circles the scene, "Follow" tracks moving elements.',
     selector: 'button', // Will look for buttons containing "Camera:"
     buttonText: 'Camera:',
     position: 'bottom',
@@ -30,7 +31,7 @@ const TOUR_STEPS = [
   {
     id: 'camera-speed',
     title: 'Camera Speed',
-    description: 'Adjust how quickly the camera moves and rotates through the environment.',
+    description: 'Adjust how quickly the camera moves through the environment.',
     selector: 'input[type="range"]', // The slider element
     position: 'bottom',
   },
@@ -45,27 +46,27 @@ const TOUR_STEPS = [
   {
     id: 'performance',
     title: 'Performance Settings',
-    description: 'Optimize for your device by adjusting graphics quality. Choose "Low" for better performance or "High" for maximum visual quality.',
+    description: 'Optimize for your device by adjusting quality. Choose "Low" for better performance or "High" for better visuals.',
     selector: 'div[title="Performance Settings"]', // The settings gear
     position: 'left',
   },
   {
     id: 'keyboard',
-    title: 'Keyboard Controls',
-    description: 'Press keys 1-6, Q-W-E, and A-S-D-F to create sounds and visual elements. Each key plays a different sound and creates unique spheres in the scene.',
+    title: 'Sound Controls',
+    description: 'Tap buttons on the virtual keyboard or press keys (1-6, Q-W-E, A-S-D-F) to create sounds and visual elements.',
     selector: null, // No specific element for keyboard controls
     position: 'center',
   },
   {
     id: 'conclusion',
     title: 'Ready to Begin!',
-    description: 'Experiment, create, and enjoy the experience. You can revisit this guide anytime by clicking the Help (?) button.',
-    selector: null, // Changed to null to ensure it shows in the center
+    description: 'Experiment, create, and enjoy the experience. You can revisit this guide anytime by tapping the Help (?) button.',
+    selector: null, 
     position: 'center',
   },
 ];
 
-const GuidedTour = ({ isFirstVisit, onComplete }) => {
+const GuidedTour = ({ isFirstVisit, onComplete, isMobile = false }) => {
   // Define all hooks at the top level - NEVER conditionally
   const [currentStep, setCurrentStep] = useState(0);
   const [visible, setVisible] = useState(false);
@@ -77,6 +78,12 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
   const tooltipRef = useRef(null);
   const highlightRef = useRef(null);
   const positioningTimeoutRef = useRef(null);
+  
+  // Detect if we're on a mobile device if not explicitly provided
+  const detectMobile = useMemo(() => {
+    if (typeof isMobile === 'boolean') return isMobile;
+    return window.innerWidth <= 768 || ('ontouchstart' in window);
+  }, [isMobile]);
   
   // Initialize on mount and when isFirstVisit changes
   useEffect(() => {
@@ -105,9 +112,13 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
       const windowWidth = window.innerWidth;
       const windowHeight = window.innerHeight;
       
+      // For mobile, position tooltip slightly higher from center to account for bottom navigation
+      const tooltipWidth = detectMobile ? windowWidth * 0.9 : 350;
+      const verticalOffset = detectMobile ? -windowHeight * 0.1 : 0;
+      
       setTooltipPosition({
-        left: windowWidth / 2 - 175, // half of estimated tooltip width
-        top: windowHeight / 2 - 100,  // half of estimated tooltip height
+        left: windowWidth / 2 - tooltipWidth / 2,
+        top: windowHeight / 2 - 100 + verticalOffset,
       });
     };
     
@@ -158,13 +169,18 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
         setElementRect(rect);
         
         // Calculate tooltip position
-        const tooltipWidth = 350;  // Estimated tooltip width
-        const tooltipHeight = 180; // Estimated tooltip height
-        const padding = 20;        // Space between element and tooltip
+        // Adjust width for mobile screens
+        const tooltipWidth = detectMobile ? Math.min(rect.width * 1.2, window.innerWidth * 0.9) : 350;
+        const tooltipHeight = detectMobile ? 200 : 180; // Slightly larger for mobile
+        const padding = detectMobile ? 15 : 20; // Slightly smaller padding for mobile
         
         // Calculate tooltip position based on specified position
         let left, top;
-        switch (step.position) {
+        
+        // On mobile, prefer bottom or top positioning to avoid edge clipping
+        const mobilePosition = detectMobile ? (rect.top > window.innerHeight / 2 ? 'top' : 'bottom') : step.position;
+        
+        switch (mobilePosition) {
           case 'top':
             left = rect.left + rect.width / 2 - tooltipWidth / 2;
             top = rect.top - tooltipHeight - padding;
@@ -174,12 +190,24 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
             top = rect.bottom + padding;
             break;
           case 'left':
-            left = rect.left - tooltipWidth - padding;
-            top = rect.top + rect.height / 2 - tooltipHeight / 2;
+            // For mobile, if element is too close to left edge, position on bottom
+            if (detectMobile && rect.left < tooltipWidth + padding * 2) {
+              left = rect.left + rect.width / 2 - tooltipWidth / 2;
+              top = rect.bottom + padding;
+            } else {
+              left = rect.left - tooltipWidth - padding;
+              top = rect.top + rect.height / 2 - tooltipHeight / 2;
+            }
             break;
           case 'right':
-            left = rect.right + padding;
-            top = rect.top + rect.height / 2 - tooltipHeight / 2;
+            // For mobile, if element is too close to right edge, position on bottom
+            if (detectMobile && window.innerWidth - rect.right < tooltipWidth + padding * 2) {
+              left = rect.left + rect.width / 2 - tooltipWidth / 2;
+              top = rect.bottom + padding;
+            } else {
+              left = rect.right + padding;
+              top = rect.top + rect.height / 2 - tooltipHeight / 2;
+            }
             break;
           default:
             left = rect.left + rect.width / 2 - tooltipWidth / 2;
@@ -203,7 +231,7 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
         clearTimeout(positioningTimeoutRef.current);
       }
     };
-  }, [currentStep, visible]);
+  }, [currentStep, visible, detectMobile]);
   
   const handleNextStep = () => {
     if (currentStep < TOUR_STEPS.length - 1) {
@@ -304,17 +332,18 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
         />
       )}
       
-      {/* Tooltip with step information */}
+      {/* Tooltip with step information - adjusted for mobile */}
       <div
         ref={tooltipRef}
         style={{
           position: 'absolute',
           left: `${tooltipPosition.left}px`,
           top: `${tooltipPosition.top}px`,
-          width: '350px',
+          width: detectMobile ? '90%' : '350px',
+          maxWidth: '90vw',
           backgroundColor: 'rgba(15, 25, 50, 0.95)',
           borderRadius: '8px',
-          padding: '16px 20px',
+          padding: detectMobile ? '20px' : '16px 20px',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
           border: '1px solid rgba(100, 150, 255, 0.4)',
           zIndex: 10001,
@@ -326,7 +355,7 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
           style={{
             color: 'rgba(120, 180, 255, 1)',
             margin: '0 0 12px 0',
-            fontSize: '18px',
+            fontSize: detectMobile ? '20px' : '18px',
             fontWeight: 600,
           }}
         >
@@ -336,7 +365,7 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
         <p 
           style={{
             color: 'white',
-            fontSize: '14px',
+            fontSize: detectMobile ? '16px' : '14px',
             lineHeight: 1.5,
             marginBottom: '16px',
           }}
@@ -349,20 +378,24 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexDirection: detectMobile ? 'column' : 'row',
+            gap: detectMobile ? '15px' : '0',
           }}
         >
           <div 
             style={{
               display: 'flex',
               gap: '6px',
+              width: detectMobile ? '100%' : 'auto',
+              justifyContent: detectMobile ? 'center' : 'flex-start',
             }}
           >
             {TOUR_STEPS.map((_, index) => (
               <div 
                 key={index}
                 style={{
-                  width: '8px',
-                  height: '8px',
+                  width: detectMobile ? '12px' : '8px',
+                  height: detectMobile ? '12px' : '8px',
                   borderRadius: '50%',
                   backgroundColor: index === currentStep 
                     ? 'rgba(100, 170, 255, 1)' 
@@ -378,6 +411,8 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
             style={{
               display: 'flex',
               gap: '8px',
+              width: detectMobile ? '100%' : 'auto',
+              justifyContent: detectMobile ? 'space-between' : 'flex-start',
             }}
           >
             {!isFirstStep && (
@@ -387,9 +422,11 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
                   color: 'white',
                   border: '1px solid rgba(100, 150, 255, 0.4)',
                   borderRadius: '4px',
-                  padding: '6px 12px',
+                  padding: detectMobile ? '10px 15px' : '6px 12px',
                   cursor: 'pointer',
-                  fontSize: '13px',
+                  fontSize: detectMobile ? '16px' : '13px',
+                  flex: detectMobile ? '1' : 'none',
+                  minWidth: detectMobile ? '100px' : 'auto',
                 }}
                 onClick={handlePreviousStep}
               >
@@ -403,10 +440,12 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
                 color: 'white',
                 border: '1px solid rgba(100, 150, 255, 0.4)',
                 borderRadius: '4px',
-                padding: '6px 12px',
+                padding: detectMobile ? '10px 15px' : '6px 12px',
                 cursor: 'pointer',
-                fontSize: '13px',
+                fontSize: detectMobile ? '16px' : '13px',
                 fontWeight: isLastStep ? 500 : 400,
+                flex: detectMobile ? '1' : 'none',
+                minWidth: detectMobile ? '100px' : 'auto',
               }}
               onClick={handleNextStep}
             >
@@ -419,13 +458,14 @@ const GuidedTour = ({ isFirstVisit, onComplete }) => {
           style={{
             display: 'block',
             width: '100%',
-            marginTop: '16px',
+            marginTop: detectMobile ? '20px' : '16px',
             backgroundColor: 'transparent',
             color: 'rgba(150, 180, 255, 0.7)',
             border: 'none',
             cursor: 'pointer',
-            fontSize: '13px',
+            fontSize: detectMobile ? '15px' : '13px',
             textAlign: 'center',
+            padding: detectMobile ? '10px' : '5px',
           }}
           onClick={handleComplete}
         >
