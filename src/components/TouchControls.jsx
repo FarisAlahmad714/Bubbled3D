@@ -1,10 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+// TouchControls.jsx - Fixed version
+import React, { useState, useEffect, useRef } from 'react';
 
 const TouchControls = ({ sceneRef, containerRef, deviceInfo }) => {
-  const touchStartPositionRef = useRef({ x: 0, y: 0 });
-  const lastTouchPositionRef = useRef({ x: 0, y: 0 });
-  const isTouchingRef = useRef(false);
-  const touchStartTimeRef = useRef(0);
+  const touchStartRef = useRef(null);
+  const touchTimerRef = useRef(null);
+  const [lastTriggeredKey, setLastTriggeredKey] = useState(null);
   
   useEffect(() => {
     if (!containerRef?.current) return;
@@ -12,86 +12,149 @@ const TouchControls = ({ sceneRef, containerRef, deviceInfo }) => {
     const container = containerRef.current;
     
     const handleTouchStart = (e) => {
-      if (e.touches.length === 1) {
-        // Single touch - start rotation or interaction
-        const touch = e.touches[0];
-        touchStartPositionRef.current = { x: touch.clientX, y: touch.clientY };
-        lastTouchPositionRef.current = { x: touch.clientX, y: touch.clientY };
-        isTouchingRef.current = true;
-        touchStartTimeRef.current = Date.now();
+      // Store touch start position
+      touchStartRef.current = {
+        x: e.touches[0].clientX / window.innerWidth,
+        y: e.touches[0].clientY / window.innerHeight,
+        time: Date.now()
+      };
+      
+      // Clear any existing timers
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
       }
-      else if (e.touches.length === 2) {
-        // Double touch - pinch zoom
-        // Implementation depends on your OrbitControls setup
-      }
+      
+      // Start a timer to trigger sound if holding
+      touchTimerRef.current = setTimeout(() => {
+        triggerSoundBasedOnPosition(touchStartRef.current.x, touchStartRef.current.y);
+      }, 300); // Hold for 300ms to trigger
     };
     
     const handleTouchMove = (e) => {
-      if (!isTouchingRef.current) return;
-      
-      if (e.touches.length === 1) {
-        const touch = e.touches[0];
-        const deltaX = touch.clientX - lastTouchPositionRef.current.x;
-        const deltaY = touch.clientY - lastTouchPositionRef.current.y;
+      // If moving significantly, cancel the timer
+      if (touchStartRef.current && touchTimerRef.current) {
+        const currentX = e.touches[0].clientX / window.innerWidth;
+        const currentY = e.touches[0].clientY / window.innerHeight;
         
-        // If scene supports camera rotation by touch
-        if (sceneRef.current?.rotateCameraByTouch) {
-          sceneRef.current.rotateCameraByTouch(deltaX * 0.01, deltaY * 0.01);
+        const distance = Math.sqrt(
+          Math.pow(currentX - touchStartRef.current.x, 2) + 
+          Math.pow(currentY - touchStartRef.current.y, 2)
+        );
+        
+        // If moved more than a threshold, cancel timer
+        if (distance > 0.03) {
+          clearTimeout(touchTimerRef.current);
+          touchTimerRef.current = null;
         }
-        
-        lastTouchPositionRef.current = { x: touch.clientX, y: touch.clientY };
       }
     };
     
     const handleTouchEnd = (e) => {
-      // Check if it was a quick tap (less than 300ms)
-      const touchDuration = Date.now() - touchStartTimeRef.current;
-      
-      if (touchDuration < 300 && isTouchingRef.current) {
-        // Calculate touch movement distance
-        const startPos = touchStartPositionRef.current;
-        const endPos = lastTouchPositionRef.current;
-        const distance = Math.sqrt(
-          Math.pow(endPos.x - startPos.x, 2) + 
-          Math.pow(endPos.y - startPos.y, 2)
+      // If touch was quick (tap), trigger sound
+      if (touchStartRef.current && (Date.now() - touchStartRef.current.time) < 300) {
+        triggerSoundBasedOnPosition(
+          touchStartRef.current.x, 
+          touchStartRef.current.y
         );
-        
-        // If it's a tap (minimal movement) and not a drag
-        if (distance < 10) {
-          // Create a sphere at touch point
-          const x = (startPos.x / window.innerWidth) * 2 - 1;
-          const y = -(startPos.y / window.innerHeight) * 2 + 1;
-          
-          if (sceneRef.current?.createSphereAtPosition) {
-            sceneRef.current.createSphereAtPosition(x, y);
-          }
-          
-          // Trigger a random sound
-          const keys = Object.keys(keyData);
-          const randomKey = keys[Math.floor(Math.random() * keys.length)];
-          
-          if (sceneRef.current?.createSphereAndPlaySound) {
-            sceneRef.current.createSphereAndPlaySound(randomKey);
-          }
+      }
+      
+      // Clear timer and reference
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+        touchTimerRef.current = null;
+      }
+      
+      touchStartRef.current = null;
+    };
+    
+    // Map screen position to a key
+    const triggerSoundBasedOnPosition = (x, y) => {
+      // Skip if scene reference isn't available
+      if (!sceneRef?.current?.createSphereAndPlaySound) return;
+      
+      // FIX: Get keyData from scene instead of direct reference
+      const keyData = sceneRef.current.getKeyData ? sceneRef.current.getKeyData() : {};
+      if (!keyData || Object.keys(keyData).length === 0) {
+        console.warn('TouchControls: No key data available from Scene');
+        return;
+      }
+      
+      // Convert position to a key based on screen quadrants
+      let key;
+      
+      // Top left quadrant
+      if (x < 0.33 && y < 0.33) {
+        key = '1';
+      } 
+      // Top middle
+      else if (x >= 0.33 && x < 0.66 && y < 0.33) {
+        key = '2';
+      } 
+      // Top right
+      else if (x >= 0.66 && y < 0.33) {
+        key = '3';
+      }
+      // Middle left
+      else if (x < 0.33 && y >= 0.33 && y < 0.66) {
+        key = 'q';
+      }
+      // Center
+      else if (x >= 0.33 && x < 0.66 && y >= 0.33 && y < 0.66) {
+        key = 'w';
+      }
+      // Middle right
+      else if (x >= 0.66 && y >= 0.33 && y < 0.66) {
+        key = 'e';
+      }
+      // Bottom left
+      else if (x < 0.33 && y >= 0.66) {
+        key = 'a';
+      }
+      // Bottom middle
+      else if (x >= 0.33 && x < 0.66 && y >= 0.66) {
+        key = 's';
+      }
+      // Bottom right
+      else {
+        key = 'd';
+      }
+      
+      // Don't trigger the same key in quick succession
+      if (key === lastTriggeredKey) {
+        const now = Date.now();
+        if (now - lastTriggerTime < 300) {
+          return; // Debounce rapid taps
         }
       }
       
-      isTouchingRef.current = false;
+      // Trigger the sound via Scene
+      sceneRef.current.createSphereAndPlaySound(key);
+      setLastTriggeredKey(key);
+      lastTriggerTime = Date.now();
     };
     
-    // Add touch event listeners
-    container.addEventListener('touchstart', handleTouchStart, { passive: false });
-    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    // Add event listeners
+    container.addEventListener('touchstart', handleTouchStart);
+    container.addEventListener('touchmove', handleTouchMove);
     container.addEventListener('touchend', handleTouchEnd);
     
+    // Variable to track last trigger time for debouncing
+    let lastTriggerTime = 0;
+    
+    // Clean up
     return () => {
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchmove', handleTouchMove);
       container.removeEventListener('touchend', handleTouchEnd);
+      
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+      }
     };
-  }, [sceneRef, containerRef, deviceInfo]);
+  }, [sceneRef, containerRef]);
   
-  return null; // This is a non-visual component
+  // No visible UI, just event handlers
+  return null;
 };
 
 export default TouchControls;

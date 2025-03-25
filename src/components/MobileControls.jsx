@@ -1,11 +1,16 @@
+// MobileControls.jsx - Updated with fixed visibility handling
 import React, { useState, useEffect } from 'react';
 import { usePerformance } from './PerformanceOptimizer';
 
-const MobileControls = ({ sceneRef, isMobile, onTriggerSound }) => {
+const MobileControls = ({ sceneRef, isMobile, onTriggerSound, isVisible = true, onToggleVisibility }) => {
   const [activeKeys, setActiveKeys] = useState({});
-  const [showKeyboard, setShowKeyboard] = useState(true);
   const [keyboardMode, setKeyboardMode] = useState('main'); // 'main', 'drums', 'piano', etc.
   const { performanceMode } = usePerformance();
+  
+  // Add useEffect to log visibility changes for debugging
+  useEffect(() => {
+    console.log('MobileControls: Visibility changed to', isVisible);
+  }, [isVisible]);
   
   const keyRows = {
     main: [
@@ -62,19 +67,23 @@ const MobileControls = ({ sceneRef, isMobile, onTriggerSound }) => {
     return colorMap[key] || '#ffffff';
   };
   
+  // Ensure the visibility prop is properly used
+  const controlsStyle = {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: 'rgba(10, 15, 30, 0.85)',
+    backdropFilter: 'blur(10px)',
+    padding: '10px',
+    display: isVisible ? 'block' : 'none', // This is the key line
+    zIndex: 1000,
+    borderTop: '1px solid rgba(80, 120, 220, 0.5)',
+    transition: 'transform 0.3s ease-out'
+  };
+  
   return (
-    <div className="mobile-controls" style={{
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      background: 'rgba(10, 15, 30, 0.85)',
-      backdropFilter: 'blur(10px)',
-      padding: '10px',
-      display: showKeyboard ? 'block' : 'none',
-      zIndex: 1000,
-      borderTop: '1px solid rgba(80, 120, 220, 0.5)'
-    }}>
+    <div className="mobile-controls" style={controlsStyle}>
       {/* Mode selector tabs */}
       <div style={{
         display: 'flex',
@@ -126,7 +135,7 @@ const MobileControls = ({ sceneRef, isMobile, onTriggerSound }) => {
         
         {/* Toggle button */}
         <button
-          onClick={() => setShowKeyboard(!showKeyboard)}
+          onClick={onToggleVisibility} // Use the passed toggle function
           style={{
             position: 'absolute',
             right: '10px',
@@ -142,7 +151,7 @@ const MobileControls = ({ sceneRef, isMobile, onTriggerSound }) => {
             color: 'white'
           }}
         >
-          {showKeyboard ? '▼' : '▲'}
+          ▼
         </button>
       </div>
       
