@@ -1,7 +1,7 @@
-// AdModal.jsx - Fully responsive with landscape mode optimization
+// AdModal.jsx - With Firebase tracking for ad clicks
 import React, { useEffect, useState } from 'react';
 
-function AdModal({ onClose, adImage, adLink, adTitle = "Special Offer" }) {
+function AdModal({ onClose, adImage, adLink, adTitle = "Special Offer", onAdClick }) {
   const [isMobile, setIsMobile] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
   
@@ -43,14 +43,17 @@ function AdModal({ onClose, adImage, adLink, adTitle = "Special Offer" }) {
     };
   }, []);
 
-  // For landscape mode, use a horizontal layout
-  const landscapeLayout = isLandscape ? {
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '15px'
-  } : {};
+  // Handle ad click with tracking
+  const handleAdClick = (e) => {
+    // If onAdClick callback exists, call it for Firebase tracking
+    if (onAdClick && typeof onAdClick === 'function') {
+      onAdClick(adTitle);
+      console.log(`Ad click tracked: ${adTitle}`);
+    }
+    
+    // Don't prevent default behavior - let the link work normally
+    return true;
+  };
 
   return (
     <div 
@@ -251,6 +254,7 @@ function AdModal({ onClose, adImage, adLink, adTitle = "Special Offer" }) {
                 href={adLink}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={handleAdClick} // Add click tracking
                 style={{
                   padding: isLandscape ? '8px 16px' : (isMobile ? '12px 20px' : '10px 30px'),
                   borderRadius: '6px',

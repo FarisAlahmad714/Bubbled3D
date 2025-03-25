@@ -15,6 +15,8 @@ import SubtitledWelcomeText from './components/SubtitledWelcomeText';
 import MobileControls from './components/MobileControls';
 import TouchControls from './components/TouchControls';
 import { detectMobileDevice } from './utils/DeviceDetector';
+// Import Firebase functions
+import { initFirebase, trackAdClick } from './components/FirebaseAnalytics';
 
 // Performance preset configurations
 const PERFORMANCE_PRESETS = {
@@ -98,6 +100,11 @@ function App() {
   const lastFrameTimeRef = useRef(performance.now());
   const spacecraftRefsArray = useRef([]);
   const particleContainerRef = useRef(null);
+
+  // Initialize Firebase analytics on app load
+  useEffect(() => {
+    initFirebase();
+  }, []);
 
   // Update device info on resize
   useEffect(() => {
@@ -200,13 +207,19 @@ function App() {
     setShowHelpPopup(false);
   };
 
-  // Handler to show the ad modal
+  // Handler to show the ad modal - Updated with Firebase tracking
   const handleShowAdModal = (adInfo) => {
     console.log("App.jsx: Modal handler called with:", adInfo);
     setAdModalInfo(adInfo);
   };
-  // Handler to close the ad modal
-  const handleCloseAdModal = () => {
+  
+  // Handler to close the ad modal and track clicks
+  const handleCloseAdModal = (isClick = false) => {
+    // If this is a real ad click (not just closing), track it
+    if (isClick && adModalInfo) {
+      trackAdClick(adModalInfo.adTitle || "Unknown Ad");
+    }
+    
     setAdModalInfo(null);
   };
 
@@ -829,13 +842,14 @@ function App() {
       {/* Guided Tour Component */}
       <GuidedTour isFirstVisit={showTour} onComplete={handleTourComplete} />
   
-      {/* Ad Modal - Rendered outside the Canvas */}
+      {/* Ad Modal - Rendered outside the Canvas with Firebase tracking */}
       {adModalInfo && (
         <AdModal
           onClose={handleCloseAdModal}
           adImage={adModalInfo.adImage}
           adLink={adModalInfo.adLink}
           adTitle={adModalInfo.adTitle}
+          onAdClick={() => handleCloseAdModal(true)} // Track clicks with Firebase
         />
       )}
   

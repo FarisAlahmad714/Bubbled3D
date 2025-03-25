@@ -2,6 +2,8 @@ import React, { useState, useRef, forwardRef, useImperativeHandle, useEffect } f
 import { v4 as uuidv4 } from 'uuid';
 import * as Tone from 'tone';
 import { useAudioManager } from './AudioManager';
+// Import Firebase tracking functions
+import { trackRecording, trackDownload } from './FirebaseAnalytics';
 
 const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref) {
   const [tracks, setTracks] = useState([]);
@@ -283,6 +285,11 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   function startRecording(trackId) {
     ensureAudioInitialized().then(ready => {
       if (!ready) return;
+      
+      // Track recording event with Firebase Analytics
+      trackRecording();
+      console.log('Recording event tracked with Firebase Analytics');
+      
       setTracks(prev => prev.map(track => 
         track.id === trackId ? {
           ...track,
@@ -499,6 +506,10 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
     setExportProgress(0);
     
     try {
+      // Track download event with Firebase Analytics
+      trackDownload('wav', tracks.length > 0 ? 120 : 0); // Track format and duration
+      console.log('Download event tracked with Firebase Analytics');
+      
       // Use the AudioManager to export to WAV
       const result = await audioManager.exportToWav(tracks, keyData, {
         durationSeconds: 120, // 2 minutes
@@ -1049,7 +1060,7 @@ const MultiTrackLooper = forwardRef(function MultiTrackLooper({ sceneRef }, ref)
   return (
     <>
        <div 
-      data-tour-target="multitracklooper"  // Add this line
+      data-tour-target="multitracklooper"
       style={containerStyle}
     >
         <div style={headerStyle} onClick={toggleMinimized}>
